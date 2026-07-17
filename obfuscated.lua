@@ -247,34 +247,34 @@ if not _G.ReplicaInterceptorActive then
     end
 end
 local appConfig = {
-    autoSummonEnabled = false,
-    autoSummonBanners = {},
-    autoSummonUnits = {},
-    autoSummonAmount = 1,
-    AutoJoin = "",
-    autoJoinEnabled = false,
-    autoJoinTeamEnabled = false,
-    autoCraftEnabled = false,
-    autoCraftItems = {},
-    ShopSelections = {},
-    TeamSelections = {},
-    Macros = {},
-    autoPlayEnabled = false,
-    autoRestartInf = false,
-    restartWaveNum = 50,
-    autoLeaveSpriteMax = false,
-    autoLeaveOnDefeat = false,
-    AntiAFK = true,
-    MobileToggle = true,
-    WebhookUrl = "",
-    webhookWinEnabled = false,
-    webhookSummonEnabled = true,
-    autoClaimQuests = false,
-    autoClaimBP = false,
-    autoClaimCalendar = false,
-    autoClaimMilestones = false,
-    hidePlayerNames = false,
-    fixLagEnabled = false
+    ["autoSummonEnabled"] = false,
+    ["autoSummonBanners"] = {},
+    ["autoSummonUnits"] = {},
+    ["autoSummonAmount"] = 1,
+    ["AutoJoin"] = "",
+    ["autoJoinEnabled"] = false,
+    ["autoJoinTeamEnabled"] = false,
+    ["autoCraftEnabled"] = false,
+    ["autoCraftItems"] = {},
+    ["ShopSelections"] = {},
+    ["TeamSelections"] = {},
+    ["Macros"] = {},
+    ["autoPlayEnabled"] = false,
+    ["autoRestartInf"] = false,
+    ["restartWaveNum"] = 50,
+    ["autoLeaveSpriteMax"] = false,
+    ["autoLeaveOnDefeat"] = false,
+    ["AntiAFK"] = true,
+    ["MobileToggle"] = true,
+    ["WebhookUrl"] = "",
+    ["webhookWinEnabled"] = false,
+    ["webhookSummonEnabled"] = true,
+    ["autoClaimQuests"] = false,
+    ["autoClaimBP"] = false,
+    ["autoClaimCalendar"] = false,
+    ["autoClaimMilestones"] = false,
+    ["hidePlayerNames"] = false,
+    ["fixLagEnabled"] = false
 }
 local playerID = tostring(game.Players.LocalPlayer.UserId)
 local folderName = "AnimeExpeditions_" .. playerID
@@ -1574,15 +1574,24 @@ task.spawn(function()
             end
             local function ClickGuiObject(guiObject)
                 if not guiObject then return false end
+                if typeof(getconnections) == "function" then
+                    pcall(function()
+                        for _, conn in ipairs(getconnections(guiObject.MouseButton1Click)) do conn:Fire() end
+                        for _, conn in ipairs(getconnections(guiObject.Activated)) do conn:Fire() end
+                        for _, conn in ipairs(getconnections(guiObject.MouseButton1Down)) do conn:Fire() end
+                    end)
+                end
                 local vim = game:GetService("VirtualInputManager")
                 local absPos = guiObject.AbsolutePosition
                 local absSize = guiObject.AbsoluteSize
                 local inset = game:GetService("GuiService"):GetGuiInset()
                 local cx = absPos.X + (absSize.X / 2)
-                local cy = absPos.Y + (absSize.Y / 2) + inset.Y
-                vim:SendMouseButtonEvent(cx, cy, 0, true, game, 1)
+                local cy = absPos.Y + (absSize.Y / 2)
+                
+                vim:SendMouseButtonEvent(cx, cy + inset.Y, 0, true, game, 1)
                 task.wait(0.05)
-                vim:SendMouseButtonEvent(cx, cy, 0, false, game, 1)
+                vim:SendMouseButtonEvent(cx, cy + inset.Y, 0, false, game, 1)
+                
                 return true
             end
             local function ClickButtonByText(targetText)
@@ -1690,13 +1699,35 @@ task.spawn(function()
                 vim:SendMouseButtonEvent(cx, cy, 0, false, game, 1)
                 return true
             end
+            local function DismissObtainedRewards()
+                local gui = game:GetService("Players").LocalPlayer.PlayerGui
+                local found = false
+                for _, v in pairs(gui:GetDescendants()) do
+                    if v:IsA("TextLabel") and type(v.Text) == "string" and v.Text:lower():find("obtained rewards") then
+                        local isVisible = true
+                        local p = v.Parent
+                        while p and p:IsA("GuiObject") do
+                            if not p.Visible then isVisible = false break end
+                            p = p.Parent
+                        end
+                        if isVisible then
+                            found = true
+                            break
+                        end
+                    end
+                end
+                if found then
+                    ClickScreenCenter()
+                    return true
+                end
+                return false
+            end
             local function WaitAndDismissPopupsForStart(timeout)
                 local deadline = tick() + (timeout or 10)
                 repeat
                     if ClickPartyStartButton() or WaitAndClickButtonByText("Start", 1) then
                         return true
                     end
-                    ClickScreenCenter()
                     task.wait(0.5)
                 until tick() >= deadline
                 return ClickPartyStartButton() or WaitAndClickButtonByText("Start", 1)
@@ -1748,28 +1779,31 @@ task.spawn(function()
                 until tick() >= deadline
                 return FindVisibleMatchmakingCancelButton() == nil
             end
+            
+            DismissObtainedRewards()
             if appConfig.autoJoinEnabled and appConfig.AutoJoin ~= "" then
                 local parts = string.split(appConfig.AutoJoin, "|")
                 if #parts >= 2 then
                     local levelData = {}
                     if parts[1] == "Challenge" then
                         levelData = {
-                            Gamemode = "Challenge",
-                            ChallengeType = parts[2],
-                            ChallengeIndex = tonumber(parts[3]) or 1
+                            ["Gamemode"] = "Challenge",
+                            ["ChallengeType"] = parts[2],
+                            ["ActName"] = parts[3] or "",
+                            ["MapName"] = parts[2]
                         }
                     else
                         levelData = {
-                            Gamemode = parts[1],
-                            MapName = parts[2],
-                            ActName = parts[3] or ""
+                            ["Gamemode"] = parts[1],
+                            ["ActName"] = parts[3] or "",
+                            ["MapName"] = parts[2]
                         }
-                        if levelData.ActName ~= "" and not string.find(levelData.ActName, "Act") then
-                            levelData.ActName = "Act " .. levelData.ActName
-                        end
-                        if parts[1] == "Infinite" or parts[1] == "Mastery" then
-                            levelData.Difficulty = "Hard"
-                        end
+                    end
+                    if levelData["ActName"] ~= "" and not string.find(levelData["ActName"], "Act") then
+                        levelData["ActName"] = "Act " .. levelData["ActName"]
+                    end
+                    if parts[1] == "Infinite" or parts[1] == "Mastery" then
+                        levelData.Difficulty = "Hard"
                     end
                     if parts[2] then
                         local mapToClick = parts[2]
@@ -1805,7 +1839,6 @@ task.spawn(function()
                                     isPlayClicked = true
                                     task.wait(0.5)
                                 else
-                                    ClickScreenCenter()
                                     task.wait(0.5)
                                 end
                             end
@@ -1821,7 +1854,6 @@ task.spawn(function()
                                     isStartClicked = true
                                     break
                                 else
-                                    ClickScreenCenter()
                                     task.wait(0.5)
                                 end
                             until tick() >= startDeadline
@@ -1849,6 +1881,10 @@ task.spawn(function()
                         stateInfo.CurrentGameState = "Finished"
                         Fluent:Notify({Title = "Phòng Lỗi", Content = "Phát hiện có người khác trong phòng Solo! Đang tự động thoát...", Duration = 5})
                         pcall(function() Actions.GameReturnLobby() end)
+                        task.spawn(function()
+                            task.wait(0.5)
+                            WaitAndClickButtonByText("Return to Lobby", 5)
+                        end)
                     end
                 end
             end
@@ -1859,6 +1895,10 @@ task.spawn(function()
                         getgenv().lastAutoReturnTrigger = tick()
                         Fluent:Notify({Title = "Auto Leave", Content = "Phát hiện thua cuộc! Đang tự động vứt trận về Lobby...", Duration = 5})
                         pcall(function() Actions.GameReturnLobby() end)
+                        task.spawn(function()
+                            task.wait(0.5)
+                            WaitAndClickButtonByText("Return to Lobby", 5)
+                        end)
                     end
                 end
             end
@@ -1871,6 +1911,10 @@ task.spawn(function()
                         stateInfo.CurrentGameState = "Finished"
                         Fluent:Notify({Title = "Auto Leave", Content = "Đã đầy 125 Sprite (Grey). Đang tự động về sảnh!", Duration = 5})
                         pcall(function() Actions.GameReturnLobby() end)
+                        task.spawn(function()
+                            task.wait(0.5)
+                            WaitAndClickButtonByText("Return to Lobby", 5)
+                        end)
                     end
                 end
             end
@@ -1897,7 +1941,7 @@ task.spawn(function()
                             local playStart = tick()
                             for _, action in ipairs(macroList) do
                                 if not isPlaying or not appConfig.autoPlayEnabled then break end
-                                while (tick() - playStart) < action.time do
+                                while (tick() - playStart) < action["time"] do
                                     task.wait(0.01)
                                     if not isPlaying or not appConfig.autoPlayEnabled then break end
                                 end
@@ -1906,64 +1950,70 @@ task.spawn(function()
                                 local gamePlayerDataId, hotbarDataId
                                 for _, v in pairs(getgc(true)) do
                                     if type(v) == "table" and rawget(v, "Id") and type(rawget(v, "Token")) == "string" then
-                                        if v.Token == "GamePlayerData" then
-                                            if not gamePlayerDataId or v.Id > gamePlayerDataId then gamePlayerDataId = v.Id end
-                                        elseif v.Token == "HotbarData" then
-                                            if not hotbarDataId or v.Id > hotbarDataId then hotbarDataId = v.Id end
+                                        if v["Token"] == "GamePlayerData" then
+                                            if not gamePlayerDataId or v["Id"] > gamePlayerDataId then gamePlayerDataId = v["Id"] end
+                                        elseif v["Token"] == "HotbarData" then
+                                            if not hotbarDataId or v["Id"] > hotbarDataId then hotbarDataId = v["Id"] end
                                         end
                                     end
                                 end
                                 local pId = gamePlayerDataId or 64
                                 local hId = hotbarDataId or 65
-                                if action.type == "Select" then Event:FireServer(hId, "SelectSlot", action.slot)
-                                elseif action.type == "Place" then Event:FireServer(pId, "PlaceGameUnit", action.slot, CFrame.new(unpack(action.pos)))
-                                elseif action.type == "Upgrade" or action.type == "Sell" then
-                                    local uId = action.unitId
-                                    if action.pos then
-                                        local targetPos = Vector3.new(action.pos[1], action.pos[2], action.pos[3])
-                                        local closestDist = 5
-                                        for _, v in pairs(workspace:GetDescendants()) do
-                                            if v:IsA("Model") and not v:GetAttribute("EnemyID") then
-                                                local part = v.PrimaryPart or v:FindFirstChild("HumanoidRootPart")
-                                                if part then
-                                                    local dist = (part.Position - targetPos).Magnitude
-                                                    if dist < closestDist then
-                                                        closestDist = dist
-                                                        local realId = nil
-                                                        local tStart = tick()
-                                                        local function checkTable(obj)
-                                                            for tk, tv in pairs(obj) do
-                                                                if tv == v and type(tk) == "string" and tonumber(tk) then return tk end
-                                                                if tk == v and type(tv) == "string" and tonumber(tv) then return tv end
-                                                                if type(tv) == "table" and type(tk) == "string" and tonumber(tk) then
-                                                                    if tv.Model == v or tv.Instance == v or tv.Unit == v or tv.Character == v then return tk end
+                                if action["type"] == "Select" then 
+                                    if action["slot"] then Event:FireServer(hId, "SelectSlot", action["slot"]) end
+                                elseif action["type"] == "Place" then 
+                                    if action["slot"] and action["pos"] then Event:FireServer(pId, "PlaceGameUnit", action["slot"], CFrame.new(unpack(action["pos"]))) end
+                                elseif action["type"] == "Upgrade" or action["type"] == "Sell" then
+                                    local uId = action["unitId"]
+                                    if not uId then
+                                        -- Skip invalid action
+                                    else
+                                        if action["pos"] then
+                                            local targetPos = Vector3.new(action["pos"][1], action["pos"][2], action["pos"][3])
+                                            local closestDist = 5
+                                            for _, v in pairs(workspace:GetDescendants()) do
+                                                if v:IsA("Model") and not v:GetAttribute("EnemyID") then
+                                                    local part = v.PrimaryPart or v:FindFirstChild("HumanoidRootPart")
+                                                    if part then
+                                                        local dist = (part.Position - targetPos).Magnitude
+                                                        if dist < closestDist then
+                                                            closestDist = dist
+                                                            local realId = nil
+                                                            local tStart = tick()
+                                                            local function checkTable(obj)
+                                                                for tk, tv in pairs(obj) do
+                                                                    if tv == v and type(tk) == "string" and tonumber(tk) then return tk end
+                                                                    if tk == v and type(tv) == "string" and tonumber(tv) then return tv end
+                                                                    if type(tv) == "table" and type(tk) == "string" and tonumber(tk) then
+                                                                        if tv["Model"] == v or tv["Instance"] == v or tv["Unit"] == v or tv["Character"] == v then return tk end
+                                                                    end
                                                                 end
+                                                                return nil
                                                             end
-                                                            return nil
-                                                        end
-                                                        if CachedUnitGCMap then
-                                                            realId = checkTable(CachedUnitGCMap)
-                                                        end
-                                                        if not realId then
-                                                            for _, obj in pairs(getgc(true)) do
-                                                                if type(obj) == "table" then
-                                                                    realId = checkTable(obj)
-                                                                    if realId then
-                                                                        CachedUnitGCMap = obj
-                                                                        break
+                                                            if CachedUnitGCMap then
+                                                                realId = checkTable(CachedUnitGCMap)
+                                                            end
+                                                            if not realId then
+                                                                for _, obj in pairs(getgc(true)) do
+                                                                    if type(obj) == "table" then
+                                                                        realId = checkTable(obj)
+                                                                        if realId then
+                                                                            CachedUnitGCMap = obj
+                                                                            break
+                                                                        end
                                                                     end
                                                                 end
                                                             end
+                                                            print("[Anti-Lag] Playback Scan took " .. string.format("%.5f", tick() - tStart) .. "s")
+                                                            uId = realId or (type(action["unitId"]) == "string" and v.Name or v)
                                                         end
-                                                        print("[Anti-Lag] Playback Scan took " .. string.format("%.5f", tick() - tStart) .. "s")
-                                                        uId = realId or (type(action.unitId) == "string" and v.Name or v)
                                                     end
                                                 end
                                             end
                                         end
+                                        if action["type"] == "Upgrade" then Event:FireServer(pId, "UpgradeGameUnit", uId)
+                                        else Event:FireServer(pId, "SellGameUnit", uId) end
                                     end
-                                    if action.type == "Upgrade" then Event:FireServer(pId, "UpgradeGameUnit", uId)
-                                    else Event:FireServer(pId, "SellGameUnit", uId) end
                                 end
                             end
                             Fluent:Notify({Title = "Macro", Content = "Hoàn tất kịch bản Macro!", Duration = 3})
@@ -2078,7 +2128,7 @@ oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
             local currentTime = tick() - startTime
             local mList = appConfig.Macros[currentStageKey]
             if action == "SelectSlot" then
-                table.insert(mList, {time = currentTime, type = "Select", slot = args[3]})
+                table.insert(mList, {["time"] = currentTime, ["type"] = "Select", ["slot"] = args[3]})
             elseif action == "PlaceGameUnit" then
                 local pArg
                 for i = 3, #args do
@@ -2086,7 +2136,7 @@ oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
                 end
                 if pArg then
                     local p = typeof(pArg) == "CFrame" and {pArg:components()} or {pArg.X, pArg.Y, pArg.Z}
-                    table.insert(mList, {time = currentTime, type = "Place", slot = args[3], pos = p})
+                    table.insert(mList, {["time"] = currentTime, ["type"] = "Place", ["slot"] = args[3], ["pos"] = p})
                 end
             elseif action == "UpgradeGameUnit" or action == "SellGameUnit" then
                 local p
@@ -2099,10 +2149,10 @@ oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
                             if tk == args[3] and typeof(tv) == "Instance" then return tv end
                             if tv == args[3] and typeof(tk) == "Instance" then return tk end
                             if tk == args[3] and type(tv) == "table" then
-                                if typeof(tv.Model) == "Instance" then return tv.Model end
-                                if typeof(tv.Instance) == "Instance" then return tv.Instance end
-                                if typeof(tv.Unit) == "Instance" then return tv.Unit end
-                                if typeof(tv.Character) == "Instance" then return tv.Character end
+                                if typeof(tv["Model"]) == "Instance" then return tv["Model"] end
+                                if typeof(tv["Instance"]) == "Instance" then return tv["Instance"] end
+                                if typeof(tv["Unit"]) == "Instance" then return tv["Unit"] end
+                                if typeof(tv["Character"]) == "Instance" then return tv["Character"] end
                             end
                         end
                         return nil
@@ -2131,9 +2181,9 @@ oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
                     if part then p = {part.Position.X, part.Position.Y, part.Position.Z} end
                 end
                 if action == "UpgradeGameUnit" then
-                    table.insert(mList, {time = currentTime, type = "Upgrade", unitId = args[3], pos = p})
+                    table.insert(mList, {["time"] = currentTime, ["type"] = "Upgrade", ["unitId"] = args[3], ["pos"] = p})
                 else
-                    table.insert(mList, {time = currentTime, type = "Sell", unitId = args[3], pos = p})
+                    table.insert(mList, {["time"] = currentTime, ["type"] = "Sell", ["unitId"] = args[3], ["pos"] = p})
                 end
             end
         end
