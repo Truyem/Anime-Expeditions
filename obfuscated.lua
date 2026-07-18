@@ -1958,7 +1958,7 @@ task.spawn(function()
                 end
             end
             if appConfig.autoPlayEnabled and not isPlaying and not lastHasRunMacro then
-                if stateInfo.Wave == 0 or stateInfo.Wave == 1 then
+                if stateInfo.Wave == 1 then
                     local skey = getCurrentStageKey(stateInfo)
                     local macroList, matchedMacroKey = getMacroListForStage(skey)
                     if macroList and #macroList > 0 then
@@ -1969,17 +1969,6 @@ task.spawn(function()
                             local playStart = tick()
                             for _, action in ipairs(macroList) do
                                 if not isPlaying or not appConfig.autoPlayEnabled then break end
-                                
-                                if action.wave and action.wave > 0 then
-                                    while true do
-                                        if not isPlaying or not appConfig.autoPlayEnabled then break end
-                                        local sInfo = getGameStates()
-                                        local cW = sInfo and sInfo.Wave or 0
-                                        if cW >= action.wave then break end
-                                        task.wait(0.5)
-                                    end
-                                end
-
                                 while (tick() - playStart) < action.time do
                                     task.wait(0.01)
                                     if not isPlaying or not appConfig.autoPlayEnabled then break end
@@ -2055,7 +2044,7 @@ task.spawn(function()
                     end
                 end
             end
-            if stateInfo.CurrentGameState == "Finished" then
+            if stateInfo.Wave == 0 or stateInfo.CurrentGameState == "Finished" then
                 lastHasRunMacro = false
                 isPlaying = false
             end
@@ -2159,14 +2148,9 @@ oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
         if isRecording then
             local action = args[2]
             local currentTime = tick() - startTime
-            local currentWave = 0
-            pcall(function()
-                local sInfo = getGameStates()
-                if sInfo and sInfo.Wave then currentWave = sInfo.Wave end
-            end)
             local mList = appConfig.Macros[currentStageKey]
             if action == "SelectSlot" then
-                table.insert(mList, {time = currentTime, wave = currentWave, type = "Select", slot = args[3]})
+                table.insert(mList, {time = currentTime, type = "Select", slot = args[3]})
             elseif action == "PlaceGameUnit" then
                 local pArg
                 for i = 3, #args do
@@ -2174,7 +2158,7 @@ oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
                 end
                 if pArg then
                     local p = typeof(pArg) == "CFrame" and {pArg:components()} or {pArg.X, pArg.Y, pArg.Z}
-                    table.insert(mList, {time = currentTime, wave = currentWave, type = "Place", slot = args[3], pos = p})
+                    table.insert(mList, {time = currentTime, type = "Place", slot = args[3], pos = p})
                 end
             elseif action == "UpgradeGameUnit" or action == "SellGameUnit" then
                 local p
@@ -2219,9 +2203,9 @@ oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
                     if part then p = {part.Position.X, part.Position.Y, part.Position.Z} end
                 end
                 if action == "UpgradeGameUnit" then
-                    table.insert(mList, {time = currentTime, wave = currentWave, type = "Upgrade", unitId = args[3], pos = p})
+                    table.insert(mList, {time = currentTime, type = "Upgrade", unitId = args[3], pos = p})
                 else
-                    table.insert(mList, {time = currentTime, wave = currentWave, type = "Sell", unitId = args[3], pos = p})
+                    table.insert(mList, {time = currentTime, type = "Sell", unitId = args[3], pos = p})
                 end
             end
         end
