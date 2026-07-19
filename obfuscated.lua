@@ -459,13 +459,30 @@ if type(MapInfo.MapData) == "table" then
             gamemodesMap[mode] = {}
             for mapId, mapData in pairs(v) do
                 gamemodesMap[mode][mapId] = {}
+                local acts = {}
                 if type(mapData.Acts) == "table" then
-                    for actId, _ in pairs(mapData.Acts) do
-                        table.insert(gamemodesMap[mode][mapId], tostring(actId))
+                    for actId, _ in pairs(mapData.Acts) do table.insert(acts, tostring(actId)) end
+                end
+                if mode == "Infinite" and #acts == 0 then table.insert(acts, "1") end
+                local diffs = {}
+                if type(mapData.Difficulties) == "table" then
+                    for diffId, diffName in pairs(mapData.Difficulties) do
+                        if type(diffName) == "string" then
+                            table.insert(diffs, diffName)
+                        else
+                            table.insert(diffs, tostring(diffId))
+                        end
                     end
                 end
-                if mode == "Infinite" and #gamemodesMap[mode][mapId] == 0 then
-                    table.insert(gamemodesMap[mode][mapId], "1")
+                if #diffs == 0 then table.insert(diffs, "") end
+                for _, act in ipairs(acts) do
+                    for _, diff in ipairs(diffs) do
+                        if diff == "" then
+                            table.insert(gamemodesMap[mode][mapId], act)
+                        else
+                            table.insert(gamemodesMap[mode][mapId], act .. " - " .. diff)
+                        end
+                    end
                 end
             end
         end
@@ -495,11 +512,10 @@ local function getGameStates()
         local mapName = tostring(safePeek(params.Map) or "")
         local actName = tostring(safePeek(params.Act) or "")
         local currentGameState = tostring(safePeek(state.CurrentGameState))
-        if currentGameState == "Lobby" then
-            cachedFallbackMapName = ""
-            cachedFallbackActName = ""
+        if currentGameState == "Lobby" and (gamemode == "" or gamemode == "nil") then
+            -- Tạm thời không xoá cache ở đây nữa để tránh Wave 0 bị xoá nhầm
         end
-        if (mapName == "" or mapName == "nil") and currentGameState ~= "Lobby" then
+        if (mapName == "" or mapName == "nil") then
             if cachedFallbackMapName ~= "" then
                 mapName = cachedFallbackMapName
                 if actName == "" or actName == "nil" then actName = cachedFallbackActName end
@@ -559,10 +575,16 @@ local function getGameStates()
     end
     return nil
 end
-local function getCurrentStageKey(stateInfo)
+local function getCurrentStageKey(stateInfo, previousStateInfo)
     if not stateInfo then return "Unknown" end
     local actName = stateInfo.Act
     local mapName = stateInfo.Map
+    
+    if (mapName == "" or mapName == "nil") and previousStateInfo and previousStateInfo.Map and previousStateInfo.Map ~= "" then
+        mapName = previousStateInfo.Map
+        if actName == "" or actName == "nil" then actName = previousStateInfo.Act end
+    end
+    
     if (mapName == "" or mapName == "nil") and appConfig.AutoJoin and appConfig.AutoJoin ~= "" then
         local parts = string.split(appConfig.AutoJoin, "|")
         if parts[1] == stateInfo.Gamemode and parts[2] then
@@ -771,8 +793,8 @@ for _, mapId in ipairs(allUniqueMaps) do
     end)
 end
 Tabs.Join:AddSection("Chọn Map Tự Động Vào (Matchmaking)")
-local function setJoinMap(mode, mapId, act)
-    local uid = mode .. "|" .. mapId .. (act and ("|" .. act) or "")
+local function setJoinMap(mode, mapId, act, diff)
+    local uid = mode .. "|" .. mapId .. (act and ("|" .. act) or "") .. (diff and ("|" .. diff) or "")
     appConfig.AutoJoin = uid
     CurrentJoinPara:SetDesc(string.gsub(uid, "|", " -> "))
     saveConfig()
@@ -791,7 +813,9 @@ for mode, maps in pairs(gamemodesMap) do
     if appConfig.AutoJoin ~= "" then
         local parts = string.split(appConfig.AutoJoin, "|")
         if parts[1] == mode then
-            if parts[3] and parts[3] ~= "" then
+            if parts[4] and parts[4] ~= "" then
+                defaultVal = parts[2] .. " - " .. parts[3] .. " - " .. parts[4]
+            elseif parts[3] and parts[3] ~= "" then
                 defaultVal = parts[2] .. " - " .. parts[3]
             else
                 defaultVal = parts[2]
@@ -806,7 +830,7 @@ for mode, maps in pairs(gamemodesMap) do
     }):OnChanged(function(value)
         if value then
             local parts = string.split(value, " - ")
-            setJoinMap(mode, parts[1], parts[2])
+            setJoinMap(mode, parts[1], parts[2], parts[3])
         end
     end)
 end
@@ -819,63 +843,50 @@ local currentStageKey = "Unknown"
 local CachedUnitGCMap = nil
 local currentMacroPara = Tabs.Macro:AddParagraph({ Title = "Trạng Thái", Content = "Đang ở Lobby" })
 
-Tabs.Macro:AddButton({
-    Title = "Thoát Về Lobby Ngay (Force Leave)",
-    Description = "Lập tức huỷ trận và quay về Sảnh (Lobby).",
+local RecordButton = Tabs.Macro:AddButton({
+    Title = "Ghi Macro Ván Mới (Tự Động)",
+    Description = "Bấm 1 lần. Sẽ tự Restart, tự Ghi khi ván bắt đầu và tự Lưu khi hết ván.",
     Callback = function()
-        pcall(function()
-            local Event = game:GetService("ReplicatedStorage"):FindFirstChild("RemoteEvents")
-            if Event and Event:FindFirstChild("ReplicaSignal") then
-                Event.ReplicaSignal:FireServer(59, "Lobby")
-                Event.ReplicaSignal:FireServer(60, "Lobby")
-                Event.ReplicaSignal:FireServer(61, "Lobby")
-            end
-        end)
-    end
-})
-
-Tabs.Macro:AddButton({
-    Title = "Chơi Lại Ván Mới Ngay (Force Restart)",
-    Description = "Lập tức Restart lại ván đấu hiện tại từ Wave 1.",
-    Callback = function()
-        pcall(function()
-            local Event = game:GetService("ReplicatedStorage"):FindFirstChild("RemoteEvents")
-            if Event and Event:FindFirstChild("ReplicaSignal") then
-                Event.ReplicaSignal:FireServer(59, "Restart")
-                Event.ReplicaSignal:FireServer(60, "Restart")
-                Event.ReplicaSignal:FireServer(61, "Restart")
-            end
-        end)
-    end
-})
-
-local ToggleRecord = Tabs.Macro:AddToggle("ToggleRecord", {Title = "Ghi Hình (Record) Map Này", Default = false})
-ToggleRecord:OnChanged(function(state)
-    isRecording = state
-    local sInfo = getGameStates()
-    if not sInfo or sInfo.CurrentGameState == "Finished" then
-        if state then
-            ToggleRecord:SetValue(false)
+        local sInfo = getGameStates()
+        if not sInfo or sInfo.CurrentGameState == "Finished" then
             Fluent:Notify({Title = "Lỗi", Content = "Phải ở trong Game mới được Record!", Duration = 3})
+            return
         end
-        return
+        if appConfig.autoPlayEnabled then
+            Fluent:Notify({Title = "Lỗi", Content = "Hãy tắt Auto Play trước khi ghi hình!", Duration = 3})
+            return
+        end
+        getgenv().PendingRecord = true
+        getgenv().IsManualRestart = true
+        isRecording = false
+        isPlaying = false
+        Fluent:Notify({Title = "Macro", Content = "Đang khởi động lại ván đấu. Sẽ tự động ghi khi vào ván...", Duration = 5})
+        pcall(function()
+            local Event = game:GetService("ReplicatedStorage"):FindFirstChild("RemoteEvents")
+            if Event and Event:FindFirstChild("ReplicaSignal") then
+                for _, id in ipairs(getgenv().GameReplicaId and {getgenv().GameReplicaId} or {55, 59, 60, 61}) do Event.ReplicaSignal:FireServer(id, "Restart") end
+            end
+        end)
     end
-    currentStageKey = getCurrentStageKey(sInfo)
-    if isRecording then
-        if appConfig.autoPlayEnabled then ToggleRecord:SetValue(false) return end
-        appConfig.Macros[currentStageKey] = {}
-        startTime = tick()
-        Fluent:Notify({Title = "Macro", Content = "Đang Record cho [" .. currentStageKey .. "]", Duration = 3})
-    else
-        saveConfig()
-        Fluent:Notify({Title = "Macro", Content = "Đã lưu Macro cho [" .. currentStageKey .. "]", Duration = 3})
-    end
-end)
+})
 local TogglePlay = Tabs.Macro:AddToggle("TogglePlay", {Title = "Bật Auto Play", Default = appConfig.autoPlayEnabled})
 TogglePlay:OnChanged(function(state)
     appConfig.autoPlayEnabled = state
     saveConfig()
-    if not state then isPlaying = false end
+    if not state then 
+        isPlaying = false 
+    else
+        local sInfo = getGameStates()
+        if sInfo and sInfo.CurrentGameState ~= "Lobby" and sInfo.CurrentGameState ~= "Finished" then
+            Fluent:Notify({Title = "Auto Play", Content = "Đang khởi động lại ván đấu để chạy Macro từ đầu...", Duration = 4})
+            pcall(function()
+                local Event = game:GetService("ReplicatedStorage"):FindFirstChild("RemoteEvents")
+                if Event and Event:FindFirstChild("ReplicaSignal") then
+                    for _, id in ipairs(getgenv().GameReplicaId and {getgenv().GameReplicaId} or {55, 59, 60, 61}) do Event.ReplicaSignal:FireServer(id, "Restart") end
+                end
+            end)
+        end
+    end
 end)
 Tabs.Macro:AddToggle("AutoRestartInf", {Title = "Auto Restart (Chỉ Infinite)", Default = appConfig.autoRestartInf}):OnChanged(function(state)
     appConfig.autoRestartInf = state
@@ -1547,7 +1558,7 @@ task.spawn(function()
             end)
         end
         if stateInfo then
-            local skey = getCurrentStageKey(stateInfo)
+            local skey = getCurrentStageKey(stateInfo, lastStateInfo)
             local macroList = getMacroListForStage(skey)
             local macroCount = macroList and #macroList or 0
             currentMacroPara:SetDesc("Đang ở: " .. skey .. "\nSố lệnh Macro đã lưu: " .. macroCount)
@@ -1623,6 +1634,7 @@ task.spawn(function()
             local function ClickButtonByText(targetText)
                 local gui = game:GetService("Players").LocalPlayer.PlayerGui
                 local btn = nil
+                local foundLogs = {}
                 for _, v in pairs(gui:GetDescendants()) do
                     if v:IsA("TextLabel") or v:IsA("TextButton") then
                         if type(v.Text) == "string" and v.Text:lower():find(targetText:lower()) and not v.Text:lower():find("force") then
@@ -1638,16 +1650,22 @@ task.spawn(function()
                                     p2 = p2.Parent
                                 end
                                 if p2 then
-                                    btn = p2
-                                    break
+                                    if not btn then btn = p2 end
+                                    table.insert(foundLogs, "[" .. v.Text .. " - OK]")
+                                else
+                                    table.insert(foundLogs, "[" .. v.Text .. " - NoBtnParent]")
                                 end
+                            else
+                                table.insert(foundLogs, "[" .. v.Text .. " - Invisible]")
                             end
                         end
                     end
                 end
                 if btn then
+                    print("[AutoJoin-Debug] THÀNH CÔNG bấm:", targetText, "-> Chốt đơn:", foundLogs[1])
                     return ClickGuiObject(btn)
                 end
+                print("[AutoJoin-Debug] THẤT BẠI bấm:", targetText, "-> Những thứ tìm thấy:", #foundLogs > 0 and table.concat(foundLogs, ", ") or "Trắng tay!")
                 return false
             end
             local function WaitAndClickButtonByText(targetText, timeout)
@@ -1797,7 +1815,8 @@ task.spawn(function()
                         levelData = {
                             Gamemode = parts[1],
                             MapName = parts[2],
-                            ActName = parts[3] or ""
+                            ActName = parts[3] or "",
+                            Difficulty = parts[4] or ""
                         }
                         if levelData.ActName ~= "" and not string.find(levelData.ActName, "Act") then
                             levelData.ActName = "Act " .. levelData.ActName
@@ -1811,15 +1830,20 @@ task.spawn(function()
                         if parts[1] and string.lower(parts[1]) == "infinite" then
                             mapToClick = "Infinite " .. parts[2]
                         end
-                        print("[AUTO JOIN] Bấm Map:", mapToClick)
+                        print("[AutoJoin-Debug] Bắt đầu xử lý Map:", mapToClick)
                         ClickButtonByText(mapToClick)
                         task.wait(0.5)
                     end
                     if parts[3] and parts[3] ~= "" then
                         local actStr = parts[3]
                         if not string.find(actStr, "Act") then actStr = "Act " .. actStr end
-                        print("[AUTO JOIN] Bấm Ải:", actStr)
+                        print("[AutoJoin-Debug] Bắt đầu xử lý Ải:", actStr)
                         ClickButtonByText(actStr)
+                        task.wait(0.5)
+                    end
+                    if parts[4] and parts[4] ~= "" then
+                        print("[AutoJoin-Debug] Bắt đầu xử lý Độ Khó:", parts[4])
+                        ClickButtonByText(parts[4])
                         task.wait(0.5)
                     end
                     if appConfig.autoJoinTeamEnabled and appConfig.TeamSelections[parts[2]] then
@@ -1886,9 +1910,7 @@ task.spawn(function()
                         pcall(function()
                             local Event = game:GetService("ReplicatedStorage"):FindFirstChild("RemoteEvents")
                             if Event and Event:FindFirstChild("ReplicaSignal") then
-                                Event.ReplicaSignal:FireServer(59, "Lobby")
-                                Event.ReplicaSignal:FireServer(60, "Lobby")
-                                Event.ReplicaSignal:FireServer(61, "Lobby")
+                                for _, id in ipairs(getgenv().GameReplicaId and {getgenv().GameReplicaId} or {55, 59, 60, 61}) do Event.ReplicaSignal:FireServer(id, "Lobby") end
                             end
                         end)
                     end
@@ -1903,9 +1925,7 @@ task.spawn(function()
                         pcall(function()
                             local Event = game:GetService("ReplicatedStorage"):FindFirstChild("RemoteEvents")
                             if Event and Event:FindFirstChild("ReplicaSignal") then
-                                Event.ReplicaSignal:FireServer(59, "Lobby")
-                                Event.ReplicaSignal:FireServer(60, "Lobby")
-                                Event.ReplicaSignal:FireServer(61, "Lobby")
+                                for _, id in ipairs(getgenv().GameReplicaId and {getgenv().GameReplicaId} or {55, 59, 60, 61}) do Event.ReplicaSignal:FireServer(id, "Lobby") end
                             end
                         end)
                     end
@@ -1930,9 +1950,7 @@ task.spawn(function()
                             pcall(function()
                                 local Event = game:GetService("ReplicatedStorage"):FindFirstChild("RemoteEvents")
                                 if Event and Event:FindFirstChild("ReplicaSignal") then
-                                    Event.ReplicaSignal:FireServer(59, "Lobby")
-                                    Event.ReplicaSignal:FireServer(60, "Lobby")
-                                    Event.ReplicaSignal:FireServer(61, "Lobby")
+                                    for _, id in ipairs(getgenv().GameReplicaId and {getgenv().GameReplicaId} or {55, 59, 60, 61}) do Event.ReplicaSignal:FireServer(id, "Lobby") end
                                 end
                             end)
                         end
@@ -1949,33 +1967,59 @@ task.spawn(function()
                         pcall(function()
                             local Event = game:GetService("ReplicatedStorage"):FindFirstChild("RemoteEvents")
                             if Event and Event:FindFirstChild("ReplicaSignal") then
-                                Event.ReplicaSignal:FireServer(59, "Restart")
-                                Event.ReplicaSignal:FireServer(60, "Restart")
-                                Event.ReplicaSignal:FireServer(61, "Restart")
+                                for _, id in ipairs(getgenv().GameReplicaId and {getgenv().GameReplicaId} or {55, 59, 60, 61}) do Event.ReplicaSignal:FireServer(id, "Restart") end
                             end
                         end)
                     end
                 end
             end
-            if appConfig.autoPlayEnabled and not isPlaying and not lastHasRunMacro then
-                if stateInfo.Wave == 1 then
-                    local skey = getCurrentStageKey(stateInfo)
+            local willBeEndMatch = false
+            if stateInfo.CurrentGameState == "Finished" or stateInfo.CurrentGameState == "Victory" or stateInfo.CurrentGameState == "Defeat" then
+                willBeEndMatch = true
+            elseif lastStateInfo and lastStateInfo.Wave > 0 and stateInfo.Wave == 0 then
+                willBeEndMatch = true
+            end
+
+            if stateInfo.Wave == 0 then
+                if not getgenv().Wave0StartTime or tick() - getgenv().Wave0StartTime > 30 then
+                    getgenv().Wave0StartTime = tick()
+                end
+            end
+            
+            if isRecording and currentStageKey and currentStageKey:find("UnknownMap") then
+                local realKey = getCurrentStageKey(stateInfo, lastStateInfo)
+                if not realKey:find("UnknownMap") then
+                    appConfig.Macros[realKey] = appConfig.Macros[currentStageKey]
+                    appConfig.Macros[currentStageKey] = nil
+                    currentStageKey = realKey
+                    Fluent:Notify({Title = "Macro", Content = "Đã cập nhật tên Map thật: " .. realKey, Duration = 3})
+                end
+            end
+
+            if getgenv().PendingRecord and (stateInfo.Wave == 0 or stateInfo.Wave == 1) then
+                getgenv().PendingRecord = false
+                isRecording = true
+                currentStageKey = getCurrentStageKey(stateInfo, lastStateInfo)
+                appConfig.Macros[currentStageKey] = {}
+                startTime = tick()
+                print("[Macro Record] Đã BẮT ĐẦU GHI HÌNH cho map: " .. currentStageKey .. " | Wave: " .. tostring(stateInfo.Wave))
+                Fluent:Notify({Title = "Macro", Content = "Bắt đầu TỰ ĐỘNG GHI hình cho [" .. currentStageKey .. "]", Duration = 5})
+            end
+
+            if appConfig.autoPlayEnabled and not isRecording and not isPlaying and not lastHasRunMacro then
+                if (stateInfo.Wave == 0 or stateInfo.Wave == 1) and not willBeEndMatch then
+                    local skey = getCurrentStageKey(stateInfo, lastStateInfo)
                     local macroList, matchedMacroKey = getMacroListForStage(skey)
                     if macroList and #macroList > 0 then
                         isPlaying = true
                         lastHasRunMacro = true
                         Fluent:Notify({Title = "Macro", Content = "Đã tìm thấy thư viện Macro cho ["..matchedMacroKey.."]. Đang bắt đầu tự động xây!", Duration = 5})
                         task.spawn(function()
-                            local playStart = tick()
-                            for _, action in ipairs(macroList) do
-                                if not isPlaying or not appConfig.autoPlayEnabled then break end
-                                while (tick() - playStart) < action.time do
-                                    task.wait(0.01)
-                                    if not isPlaying or not appConfig.autoPlayEnabled then break end
-                                end
-                                if not isPlaying or not appConfig.autoPlayEnabled then break end
-                                local Event = ReplicatedStorage:WaitForChild("RemoteEvents"):WaitForChild("ReplicaSignal")
-                                local gamePlayerDataId, hotbarDataId
+                            local Event = ReplicatedStorage:WaitForChild("RemoteEvents"):WaitForChild("ReplicaSignal")
+                            local gamePlayerDataId = getgenv().CachedGamePlayerDataId
+                            local hotbarDataId = getgenv().CachedHotbarDataId
+                            if not gamePlayerDataId or not hotbarDataId then
+                                local tStart = tick()
                                 for _, v in pairs(getgc(true)) do
                                     if type(v) == "table" and rawget(v, "Id") and type(rawget(v, "Token")) == "string" then
                                         if v.Token == "GamePlayerData" then
@@ -1985,10 +2029,26 @@ task.spawn(function()
                                         end
                                     end
                                 end
-                                local pId = gamePlayerDataId or 64
-                                local hId = hotbarDataId or 65
+                                getgenv().CachedGamePlayerDataId = gamePlayerDataId
+                                getgenv().CachedHotbarDataId = hotbarDataId
+                                print("[Anti-Lag] Lần đầu lấy Data ID tốn " .. string.format("%.5f", tick() - tStart) .. "s")
+                            end
+                            local pId = gamePlayerDataId or 64
+                            local hId = hotbarDataId or 65
+                            
+                            local playStart = getgenv().Wave0StartTime or tick()
+                            for _, action in ipairs(macroList) do
+                                if not isPlaying or not appConfig.autoPlayEnabled then break end
+                                while (tick() - playStart) < action.time do
+                                    task.wait(0.01)
+                                    if not isPlaying or not appConfig.autoPlayEnabled then break end
+                                end
+                                if not isPlaying or not appConfig.autoPlayEnabled then break end
                                 if action.type == "Select" then Event:FireServer(hId, "SelectSlot", action.slot)
-                                elseif action.type == "Place" then Event:FireServer(pId, "PlaceGameUnit", action.slot, CFrame.new(unpack(action.pos)))
+                                elseif action.type == "Place" then 
+                                    Event:FireServer(pId, "PlaceGameUnit", action.slot, CFrame.new(unpack(action.pos)))
+                                    local execTime = tick() - playStart
+                                    print(string.format("[Macro Playback] Đặt lính (Slot %d) lúc %.2fs | Gốc: %.2fs | Trễ: %.2fs | Wave: %s", action.slot, execTime, action.time, execTime - action.time, tostring(lastStateInfo and lastStateInfo.Wave or 0)))
                                 elseif action.type == "Upgrade" or action.type == "Sell" then
                                     local uId = action.unitId
                                     if action.pos then
@@ -2034,8 +2094,15 @@ task.spawn(function()
                                             end
                                         end
                                     end
-                                    if action.type == "Upgrade" then Event:FireServer(pId, "UpgradeGameUnit", uId)
-                                    else Event:FireServer(pId, "SellGameUnit", uId) end
+                                    if action.type == "Upgrade" then 
+                                        Event:FireServer(pId, "UpgradeGameUnit", uId)
+                                        local execTime = tick() - playStart
+                                        print(string.format("[Macro Playback] Nâng cấp lính (%s) lúc %.2fs | Trễ: %.2fs | Wave: %s", tostring(uId), execTime, execTime - action.time, tostring(lastStateInfo and lastStateInfo.Wave or 0)))
+                                    else 
+                                        Event:FireServer(pId, "SellGameUnit", uId) 
+                                        local execTime = tick() - playStart
+                                        print(string.format("[Macro Playback] Bán lính (%s) lúc %.2fs | Trễ: %.2fs | Wave: %s", tostring(uId), execTime, execTime - action.time, tostring(lastStateInfo and lastStateInfo.Wave or 0)))
+                                    end
                                 end
                             end
                             Fluent:Notify({Title = "Macro", Content = "Hoàn tất kịch bản Macro!", Duration = 3})
@@ -2043,10 +2110,6 @@ task.spawn(function()
                         end)
                     end
                 end
-            end
-            if stateInfo.Wave == 0 or stateInfo.CurrentGameState == "Finished" then
-                lastHasRunMacro = false
-                isPlaying = false
             end
             local isEndMatch = false
             local resultStatus = "Finished"
@@ -2065,7 +2128,22 @@ task.spawn(function()
                 end
                 getgenv().WasAutoRestarted = false
             end
-            if isEndMatch and appConfig.webhookWinEnabled and (tick() - lastSentTime > 15) then
+            
+            local wasManualRestart = getgenv().IsManualRestart
+            if isEndMatch then
+                lastHasRunMacro = false
+                isPlaying = false
+                if wasManualRestart then
+                    getgenv().IsManualRestart = false
+                else
+                    if isRecording then
+                        isRecording = false
+                        pcall(saveConfig)
+                        Fluent:Notify({Title = "Macro", Content = "Trận đấu kết thúc! Đã tự động TẮT và LƯU bản ghi Macro.", Duration = 7})
+                    end
+                end
+            end
+            if isEndMatch and not wasManualRestart and appConfig.webhookWinEnabled and (tick() - lastSentTime > 15) then
                 lastSentTime = tick()
                 getgenv().HasRunMacroThisMatch = false
                 local capturedOldItemData = getgenv().StartItemData or {}
@@ -2145,12 +2223,21 @@ oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
     local method = getnamecallmethod()
     local args = {...}
     if not checkcaller() and method == "FireServer" and typeof(self) == "Instance" and self.Name == "ReplicaSignal" then
+        if type(args[1]) == "number" and type(args[2]) == "string" and (args[2] == "Restart" or args[2] == "Lobby") then
+            if getgenv().GameReplicaId ~= args[1] then
+                getgenv().GameReplicaId = args[1]
+                print("[QUÉT ID THÀNH CÔNG] Đã bắt được Game Replica ID mới: " .. tostring(args[1]))
+            end
+        end
+
         if isRecording then
             local action = args[2]
             local currentTime = tick() - startTime
             local mList = appConfig.Macros[currentStageKey]
             if action == "SelectSlot" then
+                local curWave = lastStateInfo and lastStateInfo.Wave or 0
                 table.insert(mList, {time = currentTime, type = "Select", slot = args[3]})
+                print("[Macro Record] Đã lưu SelectSlot: " .. tostring(args[3]) .. " | Wave: " .. curWave)
             elseif action == "PlaceGameUnit" then
                 local pArg
                 for i = 3, #args do
@@ -2158,7 +2245,9 @@ oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
                 end
                 if pArg then
                     local p = typeof(pArg) == "CFrame" and {pArg:components()} or {pArg.X, pArg.Y, pArg.Z}
+                    local curWave = lastStateInfo and lastStateInfo.Wave or 0
                     table.insert(mList, {time = currentTime, type = "Place", slot = args[3], pos = p})
+                    print("[Macro Record] Đã lưu PlaceGameUnit: Slot " .. tostring(args[3]) .. " | Wave: " .. curWave)
                 end
             elseif action == "UpgradeGameUnit" or action == "SellGameUnit" then
                 local p
@@ -2203,9 +2292,13 @@ oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
                     if part then p = {part.Position.X, part.Position.Y, part.Position.Z} end
                 end
                 if action == "UpgradeGameUnit" then
+                    local curWave = lastStateInfo and lastStateInfo.Wave or 0
                     table.insert(mList, {time = currentTime, type = "Upgrade", unitId = args[3], pos = p})
+                    print("[Macro Record] Đã lưu UpgradeGameUnit: " .. tostring(args[3]) .. " | Wave: " .. curWave)
                 else
+                    local curWave = lastStateInfo and lastStateInfo.Wave or 0
                     table.insert(mList, {time = currentTime, type = "Sell", unitId = args[3], pos = p})
+                    print("[Macro Record] Đã lưu SellGameUnit: " .. tostring(args[3]) .. " | Wave: " .. curWave)
                 end
             end
         end
@@ -2231,5 +2324,22 @@ pcall(function()
 end)
 Window:SelectTab(1)
 logInit("Hoàn tất nạp Script thành công!")
+
+task.spawn(function()
+    if not getgenv().CachedGamePlayerDataId then
+        local gId, hId
+        for _, v in pairs(getgc(true)) do
+            if type(v) == "table" and rawget(v, "Id") and type(rawget(v, "Token")) == "string" then
+                if v.Token == "GamePlayerData" then
+                    if not gId or v.Id > gId then gId = v.Id end
+                elseif v.Token == "HotbarData" then
+                    if not hId or v.Id > hId then hId = v.Id end
+                end
+            end
+        end
+        getgenv().CachedGamePlayerDataId = gId
+        getgenv().CachedHotbarDataId = hId
+    end
+end)
 print(string.format("[AnimeExpeditionsUltimate] TỔNG THỜI GIAN KHỞI ĐỘNG: %.4fs", tick() - _initStartTime))
 Fluent:Notify({Title = "AE", Content = "Load xong!", Duration = 5})
