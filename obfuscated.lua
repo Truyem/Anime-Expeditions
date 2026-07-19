@@ -15,6 +15,8 @@ local function logInit(msg)
     print(string.format("[AnimeExpeditionsUltimate] %s (tốn %.4fs)", msg, t - _lastInitTime))
     _lastInitTime = t
 end
+local FALLBACK_REPLICA_IDS = {}
+for i = 50, 70 do table.insert(FALLBACK_REPLICA_IDS, i) end
 local startedAt = os.clock()
 local state = getgenv().KickBlockConnectionLost or {}
 getgenv().KickBlockConnectionLost = state
@@ -864,7 +866,7 @@ local RecordButton = Tabs.Macro:AddButton({
         pcall(function()
             local Event = game:GetService("ReplicatedStorage"):FindFirstChild("RemoteEvents")
             if Event and Event:FindFirstChild("ReplicaSignal") then
-                for _, id in ipairs(getgenv().GameReplicaId and {getgenv().GameReplicaId} or {55, 59, 60, 61}) do Event.ReplicaSignal:FireServer(id, "Restart") end
+                for _, id in ipairs(getgenv().GameReplicaId and {getgenv().GameReplicaId} or FALLBACK_REPLICA_IDS) do Event.ReplicaSignal:FireServer(id, "Restart") end
             end
         end)
     end
@@ -882,7 +884,7 @@ TogglePlay:OnChanged(function(state)
             pcall(function()
                 local Event = game:GetService("ReplicatedStorage"):FindFirstChild("RemoteEvents")
                 if Event and Event:FindFirstChild("ReplicaSignal") then
-                    for _, id in ipairs(getgenv().GameReplicaId and {getgenv().GameReplicaId} or {55, 59, 60, 61}) do Event.ReplicaSignal:FireServer(id, "Restart") end
+                    for _, id in ipairs(getgenv().GameReplicaId and {getgenv().GameReplicaId} or FALLBACK_REPLICA_IDS) do Event.ReplicaSignal:FireServer(id, "Restart") end
                 end
             end)
         end
@@ -1103,10 +1105,10 @@ local function ReturnFromAFKChamber()
         Actions.AFKChamber_ReturnToLobby()
     end)
     if ok then
-        print("[ANTI AFK] Phát hiện AFK Chamber, đang tự quay về Lobby...")
+        -- print("[ANTI AFK] Phát hiện AFK Chamber, đang tự quay về Lobby...")
         return true
     end
-    warn("[ANTI AFK] Không thể rời AFK Chamber:", err)
+    -- warn("[ANTI AFK] Không thể rời AFK Chamber:", err)
     return false
 end
 game:GetService("Players").LocalPlayer.Idled:Connect(function()
@@ -1311,14 +1313,14 @@ local function buildMatchStatsEmbed(matchState, isTestMode, customResult, oldIte
             if not trackedKeys[k] then
                 local oldAmt = oldItemData[k] or 0
                 if amt > oldAmt then
-                    table.insert(gainedItems, {key = k, amount = amt - oldAmt})
+                    table.insert(gainedItems, {key = k, amount = amt - oldAmt, oldAmount = oldAmt})
                 end
             end
         end
         for _, item in ipairs(gainedItems) do
             local emoji = getEmoji(item.key)
             if emoji == "" then emoji = "📦" end
-            table.insert(itemLines, string.format("%s **%s:** +%s", emoji, item.key, formatNumber(item.amount)))
+            table.insert(itemLines, string.format("%s **%s:** %s + %s", emoji, item.key, formatNumber(item.oldAmount), formatNumber(item.amount)))
         end
         oldEquipmentData = oldEquipmentData or getgenv().StartEquipmentData or {}
         local equipCounts = {}
@@ -1332,11 +1334,19 @@ local function buildMatchStatsEmbed(matchState, isTestMode, customResult, oldIte
         end
         oldUnitData = oldUnitData or getgenv().StartUnitData or {}
         local gainedUnits = {}
+        local newUnitsDropped = {}
         for uid, u in pairs(newUnitData) do
             local oldU = oldUnitData[uid]
-            if oldU and u.EXP > oldU.EXP then
-                table.insert(gainedUnits, {name = u.Asset or "Unknown", expGained = u.EXP - oldU.EXP, level = u.Level, currentExp = u.EXP})
+            if oldU then
+                if u.EXP > oldU.EXP then
+                    table.insert(gainedUnits, {name = u.Asset or "Unknown", expGained = u.EXP - oldU.EXP, level = u.Level, currentExp = u.EXP})
+                end
+            else
+                table.insert(newUnitsDropped, {name = u.Asset or "Unknown", level = u.Level or 1})
             end
+        end
+        for _, u in ipairs(newUnitsDropped) do
+            table.insert(unitLines, string.format("🎉 **%s** (Lvl %d): *New Drop!*", u.name, u.level))
         end
         for _, u in ipairs(gainedUnits) do
             table.insert(unitLines, string.format("🌟 **%s** (Lvl %d): +%s EXP *(Total: %s)*", u.name, u.level, formatNumber(u.expGained), formatNumber(u.currentExp)))
@@ -1371,12 +1381,18 @@ local function buildMatchStatsEmbed(matchState, isTestMode, customResult, oldIte
     else
         titlePrefix = "[" .. tostring(matchState.Gamemode or "Story") .. "] "
     end
+    
+    local pLevel = "?"
+    pcall(function()
+        pLevel = tostring(Fusion.peek(Dependencies.PlayerData).Level or "?")
+    end)
+    
     return {
         username = "Anime Expeditions Auto",
         embeds = {
             {
                 author = { name = "Anime Expedition", icon_url = fallbackGameIconUrl },
-                title = titlePrefix .. "||" .. (game.Players.LocalPlayer and game.Players.LocalPlayer.Name or "Player") .. "|| - " .. tostring(matchResult),
+                title = titlePrefix .. "||" .. (game.Players.LocalPlayer and game.Players.LocalPlayer.Name or "Player") .. " (Lv." .. pLevel .. ")|| - " .. tostring(matchResult),
                 color = embedColor,
                 thumbnail = { url = fallbackGameIconUrl },
                 fields = fields,
@@ -1626,18 +1642,50 @@ task.spawn(function()
                 local inset = game:GetService("GuiService"):GetGuiInset()
                 local cx = absPos.X + (absSize.X / 2)
                 local cy = absPos.Y + (absSize.Y / 2) + inset.Y
+                
+                local hiddenGuis = {}
+                local hui = (type(gethui) == "function" and gethui()) or game:GetService("CoreGui")
+                for _, gui in pairs(hui:GetChildren()) do
+                    if gui:IsA("ScreenGui") and not gui.Name:find("Roblox") and gui.Enabled then
+                        gui.Enabled = false
+                        table.insert(hiddenGuis, gui)
+                    end
+                end
+                for _, gui in pairs(game:GetService("Players").LocalPlayer.PlayerGui:GetChildren()) do
+                    if gui:IsA("ScreenGui") and (gui.Name:lower():find("fluent") or gui.Name == "ScreenGui") and gui.Enabled then
+                        gui.Enabled = false
+                        table.insert(hiddenGuis, gui)
+                    end
+                end
+
                 vim:SendMouseButtonEvent(cx, cy, 0, true, game, 1)
                 task.wait(0.05)
                 vim:SendMouseButtonEvent(cx, cy, 0, false, game, 1)
+                
+                for _, gui in pairs(hiddenGuis) do
+                    pcall(function() gui.Enabled = true end)
+                end
                 return true
             end
             local function ClickButtonByText(targetText)
                 local gui = game:GetService("Players").LocalPlayer.PlayerGui
                 local btn = nil
-                local foundLogs = {}
                 for _, v in pairs(gui:GetDescendants()) do
                     if v:IsA("TextLabel") or v:IsA("TextButton") then
                         if type(v.Text) == "string" and v.Text:lower():find(targetText:lower()) and not v.Text:lower():find("force") then
+                            local isGameUI = false
+                            local temp = v.Parent
+                            while temp do
+                                if temp:IsA("ScreenGui") then
+                                    if temp.Name == "Play" or temp.Name == "Lobby" or temp.Name == "HUD" or temp.Name == "Main" then
+                                        isGameUI = true
+                                    end
+                                    break
+                                end
+                                temp = temp.Parent
+                            end
+                            if not isGameUI then continue end
+                            
                             local isVisible = true
                             local p = v.Parent
                             while p and p:IsA("GuiObject") do
@@ -1650,22 +1698,16 @@ task.spawn(function()
                                     p2 = p2.Parent
                                 end
                                 if p2 then
-                                    if not btn then btn = p2 end
-                                    table.insert(foundLogs, "[" .. v.Text .. " - OK]")
-                                else
-                                    table.insert(foundLogs, "[" .. v.Text .. " - NoBtnParent]")
+                                    btn = p2
+                                    break
                                 end
-                            else
-                                table.insert(foundLogs, "[" .. v.Text .. " - Invisible]")
                             end
                         end
                     end
                 end
                 if btn then
-                    print("[AutoJoin-Debug] THÀNH CÔNG bấm:", targetText, "-> Chốt đơn:", foundLogs[1])
                     return ClickGuiObject(btn)
                 end
-                print("[AutoJoin-Debug] THẤT BẠI bấm:", targetText, "-> Những thứ tìm thấy:", #foundLogs > 0 and table.concat(foundLogs, ", ") or "Trắng tay!")
                 return false
             end
             local function WaitAndClickButtonByText(targetText, timeout)
@@ -1777,10 +1819,10 @@ task.spawn(function()
                     Actions.StartMatchmaking(levelData)
                 end)
                 if ok then
-                    print("[AUTO JOIN] StartMatchmaking OK:", levelData.Gamemode, levelData.MapName, levelData.ActName or "")
+                    -- print("[AUTO JOIN] StartMatchmaking OK:", levelData.Gamemode, levelData.MapName, levelData.ActName or "")
                     return true
                 end
-                warn("[AUTO JOIN] StartMatchmaking lỗi:", err)
+                -- warn("[AUTO JOIN] StartMatchmaking lỗi:", err)
                 return false
             end
             local function WaitForMatchmakingBannerToDisappear(timeout)
@@ -1830,19 +1872,16 @@ task.spawn(function()
                         if parts[1] and string.lower(parts[1]) == "infinite" then
                             mapToClick = "Infinite " .. parts[2]
                         end
-                        print("[AutoJoin-Debug] Bắt đầu xử lý Map:", mapToClick)
                         ClickButtonByText(mapToClick)
                         task.wait(0.5)
                     end
                     if parts[3] and parts[3] ~= "" then
                         local actStr = parts[3]
                         if not string.find(actStr, "Act") then actStr = "Act " .. actStr end
-                        print("[AutoJoin-Debug] Bắt đầu xử lý Ải:", actStr)
                         ClickButtonByText(actStr)
                         task.wait(0.5)
                     end
                     if parts[4] and parts[4] ~= "" then
-                        print("[AutoJoin-Debug] Bắt đầu xử lý Độ Khó:", parts[4])
                         ClickButtonByText(parts[4])
                         task.wait(0.5)
                     end
@@ -1855,7 +1894,7 @@ task.spawn(function()
                         task.wait(0.1)
                         pcall(function() Actions.CancelMatchmaking() end)
                         task.wait(0.5)
-                        print("[AUTO JOIN] Đã hủy Matchmaking bằng lệnh hệ thống! Bắt đầu bấm Play -> Start...")
+                        -- print("[AUTO JOIN] Đã hủy Matchmaking bằng lệnh hệ thống! Bắt đầu bấm Play -> Start...")
                         local findDeadline = tick() + 15
                         local isPlayClicked = false
                         repeat
@@ -1870,9 +1909,9 @@ task.spawn(function()
                             end
                         until isPlayClicked or tick() >= findDeadline
                         if isPlayClicked then
-                            print("[AUTO JOIN] Đã ấn PLAY, đợi 3 giây...")
+                            -- print("[AUTO JOIN] Đã ấn PLAY, đợi 3 giây...")
                             task.wait(3)
-                            print("[AUTO JOIN] Bắt đầu tìm START...")
+                            -- print("[AUTO JOIN] Bắt đầu tìm START...")
                             local startDeadline = tick() + 20
                             local isStartClicked = false
                             repeat
@@ -1885,13 +1924,13 @@ task.spawn(function()
                                 end
                             until tick() >= startDeadline
                             if isStartClicked then
-                                print("[AUTO JOIN] Đã ấn START thành công! Chờ teleport...")
+                                -- print("[AUTO JOIN] Đã ấn START thành công! Chờ teleport...")
                                 task.wait(5)
                             else
-                                print("[AUTO JOIN] Lỗi: Không tìm thấy nút START!")
+                                -- print("[AUTO JOIN] Lỗi: Không tìm thấy nút START!")
                             end
                         else
-                            print("[AUTO JOIN] Lỗi: Không thể hoàn thành chuỗi X và PLAY!")
+                            -- print("[AUTO JOIN] Lỗi: Không thể hoàn thành chuỗi X và PLAY!")
                         end
                         task.wait(2)
                     else
@@ -1910,7 +1949,7 @@ task.spawn(function()
                         pcall(function()
                             local Event = game:GetService("ReplicatedStorage"):FindFirstChild("RemoteEvents")
                             if Event and Event:FindFirstChild("ReplicaSignal") then
-                                for _, id in ipairs(getgenv().GameReplicaId and {getgenv().GameReplicaId} or {55, 59, 60, 61}) do Event.ReplicaSignal:FireServer(id, "Lobby") end
+                                for _, id in ipairs(getgenv().GameReplicaId and {getgenv().GameReplicaId} or FALLBACK_REPLICA_IDS) do Event.ReplicaSignal:FireServer(id, "Lobby") end
                             end
                         end)
                     end
@@ -1925,7 +1964,7 @@ task.spawn(function()
                         pcall(function()
                             local Event = game:GetService("ReplicatedStorage"):FindFirstChild("RemoteEvents")
                             if Event and Event:FindFirstChild("ReplicaSignal") then
-                                for _, id in ipairs(getgenv().GameReplicaId and {getgenv().GameReplicaId} or {55, 59, 60, 61}) do Event.ReplicaSignal:FireServer(id, "Lobby") end
+                                for _, id in ipairs(getgenv().GameReplicaId and {getgenv().GameReplicaId} or FALLBACK_REPLICA_IDS) do Event.ReplicaSignal:FireServer(id, "Lobby") end
                             end
                         end)
                     end
@@ -1950,7 +1989,7 @@ task.spawn(function()
                             pcall(function()
                                 local Event = game:GetService("ReplicatedStorage"):FindFirstChild("RemoteEvents")
                                 if Event and Event:FindFirstChild("ReplicaSignal") then
-                                    for _, id in ipairs(getgenv().GameReplicaId and {getgenv().GameReplicaId} or {55, 59, 60, 61}) do Event.ReplicaSignal:FireServer(id, "Lobby") end
+                                    for _, id in ipairs(getgenv().GameReplicaId and {getgenv().GameReplicaId} or FALLBACK_REPLICA_IDS) do Event.ReplicaSignal:FireServer(id, "Lobby") end
                                 end
                             end)
                         end
@@ -1967,7 +2006,7 @@ task.spawn(function()
                         pcall(function()
                             local Event = game:GetService("ReplicatedStorage"):FindFirstChild("RemoteEvents")
                             if Event and Event:FindFirstChild("ReplicaSignal") then
-                                for _, id in ipairs(getgenv().GameReplicaId and {getgenv().GameReplicaId} or {55, 59, 60, 61}) do Event.ReplicaSignal:FireServer(id, "Restart") end
+                                for _, id in ipairs(getgenv().GameReplicaId and {getgenv().GameReplicaId} or FALLBACK_REPLICA_IDS) do Event.ReplicaSignal:FireServer(id, "Restart") end
                             end
                         end)
                     end
@@ -2002,7 +2041,7 @@ task.spawn(function()
                 currentStageKey = getCurrentStageKey(stateInfo, lastStateInfo)
                 appConfig.Macros[currentStageKey] = {}
                 startTime = tick()
-                print("[Macro Record] Đã BẮT ĐẦU GHI HÌNH cho map: " .. currentStageKey .. " | Wave: " .. tostring(stateInfo.Wave))
+                -- print("[Macro Record] Đã BẮT ĐẦU GHI HÌNH cho map: " .. currentStageKey .. " | Wave: " .. tostring(stateInfo.Wave))
                 Fluent:Notify({Title = "Macro", Content = "Bắt đầu TỰ ĐỘNG GHI hình cho [" .. currentStageKey .. "]", Duration = 5})
             end
 
@@ -2031,7 +2070,7 @@ task.spawn(function()
                                 end
                                 getgenv().CachedGamePlayerDataId = gamePlayerDataId
                                 getgenv().CachedHotbarDataId = hotbarDataId
-                                print("[Anti-Lag] Lần đầu lấy Data ID tốn " .. string.format("%.5f", tick() - tStart) .. "s")
+                                -- print("[Anti-Lag] Lần đầu lấy Data ID tốn " .. string.format("%.5f", tick() - tStart) .. "s")
                             end
                             local pId = gamePlayerDataId or 64
                             local hId = hotbarDataId or 65
@@ -2048,7 +2087,7 @@ task.spawn(function()
                                 elseif action.type == "Place" then 
                                     Event:FireServer(pId, "PlaceGameUnit", action.slot, CFrame.new(unpack(action.pos)))
                                     local execTime = tick() - playStart
-                                    print(string.format("[Macro Playback] Đặt lính (Slot %d) lúc %.2fs | Gốc: %.2fs | Trễ: %.2fs | Wave: %s", action.slot, execTime, action.time, execTime - action.time, tostring(lastStateInfo and lastStateInfo.Wave or 0)))
+                                    -- print(string.format("[Macro Playback] Đặt lính (Slot %d) lúc %.2fs | Gốc: %.2fs | Trễ: %.2fs | Wave: %s", action.slot, execTime, action.time, execTime - action.time, tostring(lastStateInfo and lastStateInfo.Wave or 0)))
                                 elseif action.type == "Upgrade" or action.type == "Sell" then
                                     local uId = action.unitId
                                     if action.pos then
@@ -2087,7 +2126,7 @@ task.spawn(function()
                                                                 end
                                                             end
                                                         end
-                                                        print("[Anti-Lag] Playback Scan took " .. string.format("%.5f", tick() - tStart) .. "s")
+                                                        -- print("[Anti-Lag] Playback Scan took " .. string.format("%.5f", tick() - tStart) .. "s")
                                                         uId = realId or (type(action.unitId) == "string" and v.Name or v)
                                                     end
                                                 end
@@ -2097,11 +2136,11 @@ task.spawn(function()
                                     if action.type == "Upgrade" then 
                                         Event:FireServer(pId, "UpgradeGameUnit", uId)
                                         local execTime = tick() - playStart
-                                        print(string.format("[Macro Playback] Nâng cấp lính (%s) lúc %.2fs | Trễ: %.2fs | Wave: %s", tostring(uId), execTime, execTime - action.time, tostring(lastStateInfo and lastStateInfo.Wave or 0)))
+                                        -- print(string.format("[Macro Playback] Nâng cấp lính (%s) lúc %.2fs | Trễ: %.2fs | Wave: %s", tostring(uId), execTime, execTime - action.time, tostring(lastStateInfo and lastStateInfo.Wave or 0)))
                                     else 
                                         Event:FireServer(pId, "SellGameUnit", uId) 
                                         local execTime = tick() - playStart
-                                        print(string.format("[Macro Playback] Bán lính (%s) lúc %.2fs | Trễ: %.2fs | Wave: %s", tostring(uId), execTime, execTime - action.time, tostring(lastStateInfo and lastStateInfo.Wave or 0)))
+                                        -- print(string.format("[Macro Playback] Bán lính (%s) lúc %.2fs | Trễ: %.2fs | Wave: %s", tostring(uId), execTime, execTime - action.time, tostring(lastStateInfo and lastStateInfo.Wave or 0)))
                                     end
                                 end
                             end
@@ -2178,7 +2217,7 @@ task.spawn(function()
                             end
                             return false
                         end
-                        print("[AUTO PLAY] Tìm nút Replay/Retry...")
+                        -- print("[AUTO PLAY] Tìm nút Replay/Retry...")
                         local clicked = clickBtn("Replay") or clickBtn("Retry") or clickBtn("Play Again")
                     end)
                 end
@@ -2223,10 +2262,16 @@ oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
     local method = getnamecallmethod()
     local args = {...}
     if not checkcaller() and method == "FireServer" and typeof(self) == "Instance" and self.Name == "ReplicaSignal" then
-        if type(args[1]) == "number" and type(args[2]) == "string" and (args[2] == "Restart" or args[2] == "Lobby") then
-            if getgenv().GameReplicaId ~= args[1] then
-                getgenv().GameReplicaId = args[1]
-                print("[QUÉT ID THÀNH CÔNG] Đã bắt được Game Replica ID mới: " .. tostring(args[1]))
+        if type(args[1]) == "number" and type(args[2]) == "string" then
+            local validActions = {
+                ["Restart"] = true, ["Lobby"] = true, ["VoteStart"] = true, ["VoteRestart"] = true, ["Replay"] = true,
+                ["SelectSlot"] = true, ["PlaceGameUnit"] = true, ["UpgradeGameUnit"] = true, ["SellGameUnit"] = true,
+                ["ChangeUnitTarget"] = true
+            }
+            if validActions[args[2]] then
+                if getgenv().GameReplicaId ~= args[1] then
+                    getgenv().GameReplicaId = args[1]
+                end
             end
         end
 
@@ -2237,7 +2282,7 @@ oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
             if action == "SelectSlot" then
                 local curWave = lastStateInfo and lastStateInfo.Wave or 0
                 table.insert(mList, {time = currentTime, type = "Select", slot = args[3]})
-                print("[Macro Record] Đã lưu SelectSlot: " .. tostring(args[3]) .. " | Wave: " .. curWave)
+                -- print("[Macro Record] Đã lưu SelectSlot: " .. tostring(args[3]) .. " | Wave: " .. curWave)
             elseif action == "PlaceGameUnit" then
                 local pArg
                 for i = 3, #args do
@@ -2247,7 +2292,7 @@ oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
                     local p = typeof(pArg) == "CFrame" and {pArg:components()} or {pArg.X, pArg.Y, pArg.Z}
                     local curWave = lastStateInfo and lastStateInfo.Wave or 0
                     table.insert(mList, {time = currentTime, type = "Place", slot = args[3], pos = p})
-                    print("[Macro Record] Đã lưu PlaceGameUnit: Slot " .. tostring(args[3]) .. " | Wave: " .. curWave)
+                    -- print("[Macro Record] Đã lưu PlaceGameUnit: Slot " .. tostring(args[3]) .. " | Wave: " .. curWave)
                 end
             elseif action == "UpgradeGameUnit" or action == "SellGameUnit" then
                 local p
@@ -2281,7 +2326,7 @@ oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
                         end
                     end
                 end
-                print("[Anti-Lag] Hook Scan took " .. string.format("%.5f", tick() - tStart) .. "s")
+                -- print("[Anti-Lag] Hook Scan took " .. string.format("%.5f", tick() - tStart) .. "s")
                 if not targetModel then
                     for _, v in pairs(workspace:GetDescendants()) do
                         if v.Name == tostring(args[3]) and v:IsA("Model") then targetModel = v; break end
@@ -2294,11 +2339,11 @@ oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
                 if action == "UpgradeGameUnit" then
                     local curWave = lastStateInfo and lastStateInfo.Wave or 0
                     table.insert(mList, {time = currentTime, type = "Upgrade", unitId = args[3], pos = p})
-                    print("[Macro Record] Đã lưu UpgradeGameUnit: " .. tostring(args[3]) .. " | Wave: " .. curWave)
+                    -- print("[Macro Record] Đã lưu UpgradeGameUnit: " .. tostring(args[3]) .. " | Wave: " .. curWave)
                 else
                     local curWave = lastStateInfo and lastStateInfo.Wave or 0
                     table.insert(mList, {time = currentTime, type = "Sell", unitId = args[3], pos = p})
-                    print("[Macro Record] Đã lưu SellGameUnit: " .. tostring(args[3]) .. " | Wave: " .. curWave)
+                    -- print("[Macro Record] Đã lưu SellGameUnit: " .. tostring(args[3]) .. " | Wave: " .. curWave)
                 end
             end
         end
@@ -2341,5 +2386,5 @@ task.spawn(function()
         getgenv().CachedHotbarDataId = hId
     end
 end)
-print(string.format("[AnimeExpeditionsUltimate] TỔNG THỜI GIAN KHỞI ĐỘNG: %.4fs", tick() - _initStartTime))
+-- print(string.format("[AnimeExpeditionsUltimate] TỔNG THỜI GIAN KHỞI ĐỘNG: %.4fs", tick() - _initStartTime))
 Fluent:Notify({Title = "AE", Content = "Load xong!", Duration = 5})
