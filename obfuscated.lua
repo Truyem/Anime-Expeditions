@@ -1458,13 +1458,13 @@ local function buildMatchStatsEmbed(matchState, isTestMode, customResult, oldIte
     
     return {
         username = "Anime Expeditions Auto",
+        avatar_url = gameIconUrl,
         embeds = {
             {
                 author = { name = "Anime Expedition", icon_url = gameIconUrl },
                 title = titlePrefix .. "||" .. (game.Players.LocalPlayer and game.Players.LocalPlayer.Name or "Player") .. " (Lv." .. pLevel .. ")|| - " .. tostring(matchResult),
                 color = embedColor,
                 thumbnail = { url = gameIconUrl },
-                image = { url = gameIconUrl },
                 fields = fields,
                 timestamp = DateTime.now():ToIsoDate(),
                 footer = { text = "Anime Expeditions Ultimate" }
