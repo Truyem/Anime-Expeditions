@@ -316,6 +316,7 @@ local appConfig = {
     restartWaveNum = 50,
     autoLeaveSpriteMax = false,
     autoLeaveOnDefeat = false,
+    autoLeaveOnPlayerJoin = false,
     AntiAFK = true,
     MobileToggle = true,
     WebhookUrl = "",
@@ -343,7 +344,7 @@ local lobbyConfigKeys = {
     "autoClaimQuests", "autoClaimBP", "autoClaimCalendar", "autoClaimMilestones", "hidePlayerNames", "fixLagEnabled"
 }
 local ingameConfigKeys = {
-    "autoRecordEnabled", "autoPlayEnabled", "autoVoteStart", "autoRestartInf", "restartWaveNum", "autoLeaveSpriteMax", "autoLeaveOnDefeat", "AntiAFK", "MobileToggle", "WebhookUrl", "webhookWinEnabled", "webhookSummonEnabled"
+    "autoRecordEnabled", "autoPlayEnabled", "autoVoteStart", "autoRestartInf", "restartWaveNum", "autoLeaveSpriteMax", "autoLeaveOnDefeat", "autoLeaveOnPlayerJoin", "AntiAFK", "MobileToggle", "WebhookUrl", "webhookWinEnabled", "webhookSummonEnabled"
 }
 local function loadConfig()
     if not isfile then return end
@@ -959,6 +960,10 @@ Tabs.Macro:AddInput("RestartWaveNum", {
 })
 Tabs.Macro:AddToggle("AutoLeaveOnDefeat", {Title = "Tự động Thoát khi Thua (Defeat/Lose)", Default = appConfig.autoLeaveOnDefeat}):OnChanged(function(state)
     appConfig.autoLeaveOnDefeat = state
+    saveConfig()
+end)
+Tabs.Macro:AddToggle("AutoLeaveOnPlayerJoin", {Title = "Tự động Thoát khi có người vào phòng Solo", Default = appConfig.autoLeaveOnPlayerJoin}):OnChanged(function(state)
+    appConfig.autoLeaveOnPlayerJoin = state
     saveConfig()
 end)
 Tabs.Macro:AddSection("Chia Sẻ Macro")
@@ -2007,7 +2012,7 @@ task.spawn(function()
                 end
             end
         else
-            if appConfig.autoJoinMode == "Start Instantly (Solo)" and stateInfo.CurrentGameState ~= "Lobby" and stateInfo.CurrentGameState ~= "Finished" then
+            if appConfig.autoLeaveOnPlayerJoin and appConfig.autoJoinMode == "Start Instantly (Solo)" and stateInfo.CurrentGameState ~= "Lobby" and stateInfo.CurrentGameState ~= "Finished" then
                 if #game:GetService("Players"):GetPlayers() > 1 then
                     local lastAutoReturnTrigger = getgenv().lastAutoReturnTrigger or 0
                     if tick() - lastAutoReturnTrigger > 5 then
