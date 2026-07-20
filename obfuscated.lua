@@ -1709,13 +1709,16 @@ task.spawn(function()
                 end
             end
             if appConfig.autoCraftEnabled and #appConfig.autoCraftItems > 0 then
-                for _, recipe in ipairs(appConfig.autoCraftItems) do
-                    pcall(function() Actions.CraftRecipe(recipe, 5) end)
-                    for i = 1, 5 do
-                        pcall(function() Actions.CraftRecipe(recipe, 1) end)
+                local lastCraft = getgenv().lastAutoCraft or 0
+                if tick() - lastCraft > 2 then
+                    getgenv().lastAutoCraft = tick()
+                    for _, recipe in ipairs(appConfig.autoCraftItems) do
+                        pcall(function() Actions.CraftRecipe(recipe, 5) end)
+                        for i = 1, 5 do
+                            pcall(function() Actions.CraftRecipe(recipe, 1) end)
+                        end
                     end
                 end
-                task.wait(0.5)
             end
             local function ClickGuiObject(guiObject)
                 if not guiObject then return false end
@@ -1723,40 +1726,21 @@ task.spawn(function()
                 local fired = false
                 pcall(function()
                     if type(firesignal) == "function" and (guiObject:IsA("TextButton") or guiObject:IsA("ImageButton")) then
-                        firesignal(guiObject.MouseButton1Click)
+                        pcall(function() firesignal(guiObject.MouseButton1Down) end)
+                        pcall(function() firesignal(guiObject.MouseButton1Up) end)
+                        pcall(function() firesignal(guiObject.MouseButton1Click) end)
+                        pcall(function() firesignal(guiObject.Activated) end)
                         fired = true
                     elseif type(getconnections) == "function" then
-                        for _, c in ipairs(getconnections(guiObject.MouseButton1Click)) do c:Fire() fired = true end
+                        for _, c in ipairs(getconnections(guiObject.MouseButton1Down)) do pcall(function() c:Fire() end) end
+                        for _, c in ipairs(getconnections(guiObject.MouseButton1Up)) do pcall(function() c:Fire() end) end
+                        for _, c in ipairs(getconnections(guiObject.MouseButton1Click)) do pcall(function() c:Fire() end) end
+                        for _, c in ipairs(getconnections(guiObject.Activated)) do pcall(function() c:Fire() end) end
+                        fired = true
                     end
                 end)
                 if fired then return true end
-
-                pcall(function() if Window and type(Window.Minimize) == "function" then Window:Minimize() end end)
-                
-                local vim = game:GetService("VirtualInputManager")
-                local absPos = guiObject.AbsolutePosition
-                local absSize = guiObject.AbsoluteSize
-                local inset = game:GetService("GuiService"):GetGuiInset()
-                local cx = absPos.X + (absSize.X / 2)
-                local cy = absPos.Y + (absSize.Y / 2) + inset.Y
-                
-                -- Natively hide Fluent UI using its MinimizeKey (LeftShift)
-                vim:SendKeyEvent(true, Enum.KeyCode.LeftShift, false, game)
-                task.wait(0.01)
-                vim:SendKeyEvent(false, Enum.KeyCode.LeftShift, false, game)
-                
-                task.wait(0.1) -- Wait for Fluent UI hide animation
-
-                vim:SendMouseButtonEvent(cx, cy, 0, true, game, 1)
-                task.wait(0.05)
-                vim:SendMouseButtonEvent(cx, cy, 0, false, game, 1)
-                
-                -- Show Fluent UI again
-                vim:SendKeyEvent(true, Enum.KeyCode.LeftShift, false, game)
-                task.wait(0.01)
-                vim:SendKeyEvent(false, Enum.KeyCode.LeftShift, false, game)
-                
-                return true
+                return false
             end
             local function ClickButtonByText(targetText)
                 local gui = game:GetService("Players").LocalPlayer.PlayerGui
@@ -1768,9 +1752,7 @@ task.spawn(function()
                             local temp = v.Parent
                             while temp do
                                 if temp:IsA("ScreenGui") then
-                                    if temp.Name == "Play" or temp.Name == "Lobby" or temp.Name == "HUD" or temp.Name == "Main" then
-                                        isGameUI = true
-                                    end
+                                    isGameUI = true
                                     break
                                 end
                                 temp = temp.Parent
@@ -1813,10 +1795,13 @@ task.spawn(function()
             end
             local function ClickLobbyPlayButton()
                 local gui = game:GetService("Players").LocalPlayer.PlayerGui
-                local leftHUD = gui:FindFirstChild("LeftHUD")
-                if leftHUD then
-                    for _, v in ipairs(leftHUD:GetDescendants()) do
-                        if (v:IsA("TextLabel") or v:IsA("TextButton")) and type(v.Text) == "string" and v.Text:lower() == "play" then
+                local searchRoots = {gui:FindFirstChild("LeftHUD"), gui:FindFirstChild("HUD"), gui:FindFirstChild("Main"), gui:FindFirstChild("Lobby"), gui}
+                local rootToSearch = gui
+                for _, r in ipairs(searchRoots) do if r then rootToSearch = r; break end end
+                
+                if rootToSearch then
+                    for _, v in ipairs(rootToSearch:GetDescendants()) do
+                        if (v:IsA("TextLabel") or v:IsA("TextButton")) and type(v.Text) == "string" and string.match(v.Text:lower(), "^%s*play%s*$") then
                             local isVisible = true
                             local p = v.Parent
                             while p and p:IsA("GuiObject") do
@@ -1839,10 +1824,13 @@ task.spawn(function()
             end
             local function ClickPartyStartButton()
                 local gui = game:GetService("Players").LocalPlayer.PlayerGui
-                local playGui = gui:FindFirstChild("Play")
-                if playGui then
-                    for _, v in ipairs(playGui:GetDescendants()) do
-                        if (v:IsA("TextLabel") or v:IsA("TextButton")) and type(v.Text) == "string" and v.Text:lower() == "start" then
+                local searchRoots = {gui:FindFirstChild("Play"), gui:FindFirstChild("HUD"), gui:FindFirstChild("Main"), gui:FindFirstChild("Lobby"), gui}
+                local rootToSearch = gui
+                for _, r in ipairs(searchRoots) do if r then rootToSearch = r; break end end
+                
+                if rootToSearch then
+                    for _, v in ipairs(rootToSearch:GetDescendants()) do
+                        if (v:IsA("TextLabel") or v:IsA("TextButton")) and type(v.Text) == "string" and string.match(v.Text:lower(), "^%s*start%s*$") then
                             local isVisible = true
                             local p = v.Parent
                             while p and p:IsA("GuiObject") do
@@ -1863,26 +1851,13 @@ task.spawn(function()
                 end
                 return false
             end
-            local function ClickScreenCenter()
-                local camera = workspace.CurrentCamera
-                if not camera then return false end
-                local vim = game:GetService("VirtualInputManager")
-                local viewport = camera.ViewportSize
-                local inset = game:GetService("GuiService"):GetGuiInset()
-                local cx = viewport.X / 2
-                local cy = viewport.Y / 2 + inset.Y
-                vim:SendMouseButtonEvent(cx, cy, 0, true, game, 1)
-                task.wait(0.05)
-                vim:SendMouseButtonEvent(cx, cy, 0, false, game, 1)
-                return true
-            end
+
             local function WaitAndDismissPopupsForStart(timeout)
                 local deadline = tick() + (timeout or 10)
                 repeat
                     if ClickPartyStartButton() or WaitAndClickButtonByText("Start", 1) then
                         return true
                     end
-                    ClickScreenCenter()
                     task.wait(0.5)
                 until tick() >= deadline
                 return ClickPartyStartButton() or WaitAndClickButtonByText("Start", 1)
@@ -1985,16 +1960,18 @@ task.spawn(function()
                         task.wait(0.1)
                         pcall(function() Actions.CancelMatchmaking() end)
                         task.wait(0.5)
-                        -- print("[AUTO JOIN] Đã hủy Matchmaking bằng lệnh hệ thống! Bắt đầu bấm Play -> Start...")
+                        -- Try to start instantly via Remote
+                        pcall(function() Actions.PartyStartGame() end)
+                        
                         local findDeadline = tick() + 15
                         local isPlayClicked = false
                         repeat
+                            pcall(function() Actions.PartyStartGame() end)
                             if not isPlayClicked then
                                 if ClickLobbyPlayButton() then
                                     isPlayClicked = true
                                     task.wait(0.5)
                                 else
-                                    ClickScreenCenter()
                                     task.wait(0.5)
                                 end
                             end
@@ -2006,11 +1983,11 @@ task.spawn(function()
                             local startDeadline = tick() + 20
                             local isStartClicked = false
                             repeat
+                                pcall(function() Actions.PartyStartGame() end)
                                 if ClickPartyStartButton() then
                                     isStartClicked = true
                                     break
                                 else
-                                    ClickScreenCenter()
                                     task.wait(0.5)
                                 end
                             until tick() >= startDeadline
@@ -2334,32 +2311,8 @@ task.spawn(function()
                 end
                 isPlaying = false
                 if appConfig.autoPlayEnabled then
-                    task.spawn(function()
-                        task.wait(8)
-                        local vim = game:GetService("VirtualInputManager")
-                        local gui = game:GetService("Players").LocalPlayer.PlayerGui
-                        local function clickBtn(txt)
-                            for _, v in pairs(gui:GetDescendants()) do
-                                if (v:IsA("TextLabel") or v:IsA("TextButton")) and type(v.Text) == "string" and v.Text:lower():find(txt:lower()) and v.Visible then
-                                    local p = v
-                                    while p and not p:IsA("TextButton") and not p:IsA("ImageButton") do p = p.Parent end
-                                    if p and p.Visible then
-                                        local ax, ay = p.AbsolutePosition.X, p.AbsolutePosition.Y
-                                        local sx, sy = p.AbsoluteSize.X, p.AbsoluteSize.Y
-                                        local cx = ax + sx/2
-                                        local cy = ay + sy/2 + game:GetService("GuiService"):GetGuiInset().Y
-                                        vim:SendMouseButtonEvent(cx, cy, 0, true, game, 1)
-                                        task.wait(0.05)
-                                        vim:SendMouseButtonEvent(cx, cy, 0, false, game, 1)
-                                        return true
-                                    end
-                                end
-                            end
-                            return false
-                        end
-                        -- print("[AUTO PLAY] Tìm nút Replay/Retry...")
-                        local clicked = clickBtn("Replay") or clickBtn("Retry") or clickBtn("Play Again")
-                    end)
+                    -- The script already relies on safeFireGameAction("Restart") 
+                    -- so we no longer need the fallback physical mouse click here.
                 end
                 Fluent:Notify({Title = "Match Ended", Content = "Đang lấy phần thưởng để gửi Discord...", Duration = 3})
                 task.spawn(function()
