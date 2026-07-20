@@ -17,6 +17,53 @@ local function logInit(msg)
 end
 local FALLBACK_REPLICA_IDS = {}
 for i = 50, 70 do table.insert(FALLBACK_REPLICA_IDS, i) end
+local function safeFireGameAction(actionName, ...)
+    local Event = game:GetService("ReplicatedStorage"):FindFirstChild("RemoteEvents")
+    if not Event or not Event:FindFirstChild("ReplicaSignal") then return false end
+
+    if actionName == "VoteStart" then
+        warn("[AE-LOG] Scanning GC for VotePrompt ID for action: VoteStart")
+        local promptId = nil
+        for _, v in pairs(getgc(true)) do
+            if type(v) == "table" and rawget(v, "Id") and type(rawget(v, "Token")) == "string" then
+                if v.Token == "VotePrompt" then
+                    promptId = v.Id
+                    break
+                end
+            end
+        end
+        if promptId then
+            Event.ReplicaSignal:FireServer(promptId, "Response", true)
+            warn("[AE-LOG] Fired VoteStart (Response) with VotePrompt ID: " .. tostring(promptId))
+            return true
+        end
+        warn("[AE-LOG] VotePrompt ID NOT FOUND!")
+        return false
+    end
+
+    warn("[AE-LOG] Scanning GC for GameState ID for action: " .. actionName)
+    local validId = nil
+    for _, v in pairs(getgc(true)) do
+        if type(v) == "table" and rawget(v, "Id") and type(rawget(v, "Token")) == "string" then
+            if v.Token == "GameState" then
+                validId = v.Id
+                warn("[AE-LOG] Found GameState ID via GC: " .. tostring(validId))
+                break
+            end
+        end
+    end
+    if validId then
+        Event.ReplicaSignal:FireServer(validId, actionName, ...)
+        warn("[AE-LOG] Fired " .. actionName .. " with ID: " .. tostring(validId))
+        return true
+    else
+        warn("[AE-LOG] GameState ID NOT FOUND! Falling back to 50-70 loop for action: " .. actionName)
+        for _, id in ipairs(FALLBACK_REPLICA_IDS) do
+            Event.ReplicaSignal:FireServer(id, actionName, ...)
+        end
+        return false
+    end
+end
 local startedAt = os.clock()
 local state = getgenv().KickBlockConnectionLost or {}
 getgenv().KickBlockConnectionLost = state
@@ -258,10 +305,13 @@ local appConfig = {
     autoJoinTeamEnabled = false,
     autoCraftEnabled = false,
     autoCraftItems = {},
+    autoShopEnabled = false,
     ShopSelections = {},
     TeamSelections = {},
     Macros = {},
+    autoRecordEnabled = false,
     autoPlayEnabled = false,
+    autoVoteStart = false,
     autoRestartInf = false,
     restartWaveNum = 50,
     autoLeaveSpriteMax = false,
@@ -293,7 +343,7 @@ local lobbyConfigKeys = {
     "autoClaimQuests", "autoClaimBP", "autoClaimCalendar", "autoClaimMilestones", "hidePlayerNames", "fixLagEnabled"
 }
 local ingameConfigKeys = {
-    "autoPlayEnabled", "autoRestartInf", "restartWaveNum", "autoLeaveSpriteMax", "autoLeaveOnDefeat", "AntiAFK", "MobileToggle", "WebhookUrl", "webhookWinEnabled", "webhookSummonEnabled"
+    "autoRecordEnabled", "autoPlayEnabled", "autoVoteStart", "autoRestartInf", "restartWaveNum", "autoLeaveSpriteMax", "autoLeaveOnDefeat", "AntiAFK", "MobileToggle", "WebhookUrl", "webhookWinEnabled", "webhookSummonEnabled"
 }
 local function loadConfig()
     if not isfile then return end
@@ -708,6 +758,10 @@ Tabs.Summon:AddDropdown("DropAmount", {Title = "Summon Amount", Values = {"1", "
 Tabs.Summon:AddToggle("ToggleSummon", {Title = "Bật Auto Summon (Snipe)", Default = appConfig.autoSummonEnabled}):OnChanged(function(v) appConfig.autoSummonEnabled = v; saveConfig() end)
 task.wait()
 Tabs.Shop:AddParagraph({ Title = "Auto Shop", Content = "Tự động mua các vật phẩm đã chọn." })
+Tabs.Shop:AddToggle("AutoShopEnabled", {Title = "Bật Auto Shop", Default = appConfig.autoShopEnabled}):OnChanged(function(state)
+    appConfig.autoShopEnabled = state
+    saveConfig()
+end)
 local groupedShops = {}
 for _, item in ipairs(allShops) do
     if not groupedShops[item.StoreId] then groupedShops[item.StoreId] = {} end
@@ -863,14 +917,10 @@ local RecordButton = Tabs.Macro:AddButton({
         isRecording = false
         isPlaying = false
         Fluent:Notify({Title = "Macro", Content = "Đang khởi động lại ván đấu. Sẽ tự động ghi khi vào ván...", Duration = 5})
-        pcall(function()
-            local Event = game:GetService("ReplicatedStorage"):FindFirstChild("RemoteEvents")
-            if Event and Event:FindFirstChild("ReplicaSignal") then
-                for _, id in ipairs(getgenv().GameReplicaId and {getgenv().GameReplicaId} or FALLBACK_REPLICA_IDS) do Event.ReplicaSignal:FireServer(id, "Restart") end
-            end
-        end)
+        pcall(function() safeFireGameAction("Restart") end)
     end
 })
+
 local TogglePlay = Tabs.Macro:AddToggle("TogglePlay", {Title = "Bật Auto Play", Default = appConfig.autoPlayEnabled})
 TogglePlay:OnChanged(function(state)
     appConfig.autoPlayEnabled = state
@@ -878,15 +928,17 @@ TogglePlay:OnChanged(function(state)
     if not state then 
         isPlaying = false 
     else
+        isRecording = false
+        getgenv().PendingRecord = false
         local sInfo = getGameStates()
         if sInfo and sInfo.CurrentGameState ~= "Lobby" and sInfo.CurrentGameState ~= "Finished" then
+            getgenv().IsManualRestart = true
+            lastHasRunMacro = true
             Fluent:Notify({Title = "Auto Play", Content = "Đang khởi động lại ván đấu để chạy Macro từ đầu...", Duration = 4})
-            pcall(function()
-                local Event = game:GetService("ReplicatedStorage"):FindFirstChild("RemoteEvents")
-                if Event and Event:FindFirstChild("ReplicaSignal") then
-                    for _, id in ipairs(getgenv().GameReplicaId and {getgenv().GameReplicaId} or FALLBACK_REPLICA_IDS) do Event.ReplicaSignal:FireServer(id, "Restart") end
-                end
-            end)
+            pcall(function() safeFireGameAction("Restart") end)
+        else
+            lastHasRunMacro = false
+            isPlaying = false
         end
     end
 end)
@@ -1275,7 +1327,24 @@ local function chunkLines(lines)
     if currentChunk ~= "" then table.insert(chunks, currentChunk) end
     return chunks
 end
-local fallbackGameIconUrl = "https://tr.rbxcdn.com/180DAY-eeaa105a1844ec3811a2368a362736ec/256/256/Image/Png/noFilter"
+local function getGameIconUrl()
+    local success, result = pcall(function()
+        local req = (syn and syn.request) or request or http_request
+        local resp = req({
+            Url = "https://thumbnails.roblox.com/v1/places/gameicons?placeIds=" .. tostring(game.PlaceId) .. "&returnPolicy=PlaceHolder&size=512x512&format=Png&isCircular=false",
+            Method = "GET"
+        })
+        if resp.StatusCode == 200 then
+            local data = game:GetService("HttpService"):JSONDecode(resp.Body)
+            if data and data.data and data.data[1] and data.data[1].imageUrl then
+                return data.data[1].imageUrl
+            end
+        end
+    end)
+    if success and result then return result end
+    return "https://tr.rbxcdn.com/180DAY-eeaa105a1844ec3811a2368a362736ec/256/256/Image/Webp"
+end
+local gameIconUrl = getGameIconUrl()
 local function buildMatchStatsEmbed(matchState, isTestMode, customResult, oldItemData, oldUnitData, oldEquipmentData)
     local newItemData = snapshotItemData()
     local newUnitData = snapshotUnitData()
@@ -1391,11 +1460,14 @@ local function buildMatchStatsEmbed(matchState, isTestMode, customResult, oldIte
         username = "Anime Expeditions Auto",
         embeds = {
             {
-                author = { name = "Anime Expedition", icon_url = fallbackGameIconUrl },
+                author = { name = "Anime Expedition", icon_url = gameIconUrl },
                 title = titlePrefix .. "||" .. (game.Players.LocalPlayer and game.Players.LocalPlayer.Name or "Player") .. " (Lv." .. pLevel .. ")|| - " .. tostring(matchResult),
                 color = embedColor,
-                thumbnail = { url = fallbackGameIconUrl },
+                thumbnail = { url = gameIconUrl },
+                image = { url = gameIconUrl },
                 fields = fields,
+                timestamp = DateTime.now():ToIsoDate(),
+                footer = { text = "Anime Expeditions Ultimate" }
             },
         },
     }
@@ -1575,6 +1647,7 @@ task.spawn(function()
         end
         if stateInfo then
             local skey = getCurrentStageKey(stateInfo, lastStateInfo)
+            currentStageKey = skey
             local macroList = getMacroListForStage(skey)
             local macroCount = macroList and #macroList or 0
             currentMacroPara:SetDesc("Đang ở: " .. skey .. "\nSố lệnh Macro đã lưu: " .. macroCount)
@@ -1613,9 +1686,19 @@ task.spawn(function()
                     for level = 1, 100 do Actions.ClaimLevelMilestone(level) end
                 end)
             end
-            for storeId, products in pairs(appConfig.ShopSelections) do
-                for _, productId in ipairs(products) do
-                    pcall(function() Actions.StorePurchaseProduct(storeId, productId, 1) end)
+            if appConfig.autoShopEnabled then
+                for storeId, products in pairs(appConfig.ShopSelections) do
+                    for _, productId in ipairs(products) do
+                        pcall(function()
+                            local pId = getgenv().CachedGamePlayerDataId
+                            if not pId then return end
+                            local Event = game:GetService("ReplicatedStorage"):FindFirstChild("RemoteEvents")
+                            if Event and Event:FindFirstChild("ReplicaSignal") then
+                                local realProductId = tonumber(productId) or productId
+                                Event.ReplicaSignal:FireServer(pId, "PurchaseItem", storeId, realProductId, 1)
+                            end
+                        end)
+                    end
                 end
             end
             if appConfig.autoSummonEnabled then
@@ -1636,6 +1719,20 @@ task.spawn(function()
             end
             local function ClickGuiObject(guiObject)
                 if not guiObject then return false end
+                
+                local fired = false
+                pcall(function()
+                    if type(firesignal) == "function" and (guiObject:IsA("TextButton") or guiObject:IsA("ImageButton")) then
+                        firesignal(guiObject.MouseButton1Click)
+                        fired = true
+                    elseif type(getconnections) == "function" then
+                        for _, c in ipairs(getconnections(guiObject.MouseButton1Click)) do c:Fire() fired = true end
+                    end
+                end)
+                if fired then return true end
+
+                pcall(function() if Window and type(Window.Minimize) == "function" then Window:Minimize() end end)
+                
                 local vim = game:GetService("VirtualInputManager")
                 local absPos = guiObject.AbsolutePosition
                 local absSize = guiObject.AbsoluteSize
@@ -1643,28 +1740,22 @@ task.spawn(function()
                 local cx = absPos.X + (absSize.X / 2)
                 local cy = absPos.Y + (absSize.Y / 2) + inset.Y
                 
-                local hiddenGuis = {}
-                local hui = (type(gethui) == "function" and gethui()) or game:GetService("CoreGui")
-                for _, gui in pairs(hui:GetChildren()) do
-                    if gui:IsA("ScreenGui") and not gui.Name:find("Roblox") and gui.Enabled then
-                        gui.Enabled = false
-                        table.insert(hiddenGuis, gui)
-                    end
-                end
-                for _, gui in pairs(game:GetService("Players").LocalPlayer.PlayerGui:GetChildren()) do
-                    if gui:IsA("ScreenGui") and (gui.Name:lower():find("fluent") or gui.Name == "ScreenGui") and gui.Enabled then
-                        gui.Enabled = false
-                        table.insert(hiddenGuis, gui)
-                    end
-                end
+                -- Natively hide Fluent UI using its MinimizeKey (LeftShift)
+                vim:SendKeyEvent(true, Enum.KeyCode.LeftShift, false, game)
+                task.wait(0.01)
+                vim:SendKeyEvent(false, Enum.KeyCode.LeftShift, false, game)
+                
+                task.wait(0.1) -- Wait for Fluent UI hide animation
 
                 vim:SendMouseButtonEvent(cx, cy, 0, true, game, 1)
                 task.wait(0.05)
                 vim:SendMouseButtonEvent(cx, cy, 0, false, game, 1)
                 
-                for _, gui in pairs(hiddenGuis) do
-                    pcall(function() gui.Enabled = true end)
-                end
+                -- Show Fluent UI again
+                vim:SendKeyEvent(true, Enum.KeyCode.LeftShift, false, game)
+                task.wait(0.01)
+                vim:SendKeyEvent(false, Enum.KeyCode.LeftShift, false, game)
+                
                 return true
             end
             local function ClickButtonByText(targetText)
@@ -1946,12 +2037,7 @@ task.spawn(function()
                         getgenv().lastAutoReturnTrigger = tick()
                         stateInfo.CurrentGameState = "Finished"
                         Fluent:Notify({Title = "Phòng Lỗi", Content = "Phát hiện có người khác trong phòng Solo! Đang tự động thoát...", Duration = 5})
-                        pcall(function()
-                            local Event = game:GetService("ReplicatedStorage"):FindFirstChild("RemoteEvents")
-                            if Event and Event:FindFirstChild("ReplicaSignal") then
-                                for _, id in ipairs(getgenv().GameReplicaId and {getgenv().GameReplicaId} or FALLBACK_REPLICA_IDS) do Event.ReplicaSignal:FireServer(id, "Lobby") end
-                            end
-                        end)
+                        pcall(function() safeFireGameAction("Lobby") end)
                     end
                 end
             end
@@ -1961,12 +2047,7 @@ task.spawn(function()
                     if tick() - lastAutoReturnTrigger > 5 then
                         getgenv().lastAutoReturnTrigger = tick()
                         Fluent:Notify({Title = "Auto Leave", Content = "Phát hiện thua cuộc! Đang tự động vứt trận về Lobby...", Duration = 5})
-                        pcall(function()
-                            local Event = game:GetService("ReplicatedStorage"):FindFirstChild("RemoteEvents")
-                            if Event and Event:FindFirstChild("ReplicaSignal") then
-                                for _, id in ipairs(getgenv().GameReplicaId and {getgenv().GameReplicaId} or FALLBACK_REPLICA_IDS) do Event.ReplicaSignal:FireServer(id, "Lobby") end
-                            end
-                        end)
+                        pcall(function() safeFireGameAction("Lobby") end)
                     end
                 end
             end
@@ -1986,12 +2067,7 @@ task.spawn(function()
                             getgenv().lastAutoReturnTrigger = tick()
                             stateInfo.CurrentGameState = "Finished"
                             Fluent:Notify({Title = "Auto Leave", Content = "Đã đầy 125 Sprite (Grey). Đang tự động về sảnh!", Duration = 5})
-                            pcall(function()
-                                local Event = game:GetService("ReplicatedStorage"):FindFirstChild("RemoteEvents")
-                                if Event and Event:FindFirstChild("ReplicaSignal") then
-                                    for _, id in ipairs(getgenv().GameReplicaId and {getgenv().GameReplicaId} or FALLBACK_REPLICA_IDS) do Event.ReplicaSignal:FireServer(id, "Lobby") end
-                                end
-                            end)
+                            pcall(function() safeFireGameAction("Lobby") end)
                         end
                     end
                 end
@@ -2003,12 +2079,7 @@ task.spawn(function()
                         getgenv().lastAutoRestartTrigger = tick()
                         getgenv().WasAutoRestarted = true
                         stateInfo.CurrentGameState = "Finished"
-                        pcall(function()
-                            local Event = game:GetService("ReplicatedStorage"):FindFirstChild("RemoteEvents")
-                            if Event and Event:FindFirstChild("ReplicaSignal") then
-                                for _, id in ipairs(getgenv().GameReplicaId and {getgenv().GameReplicaId} or FALLBACK_REPLICA_IDS) do Event.ReplicaSignal:FireServer(id, "Restart") end
-                            end
-                        end)
+                        pcall(function() safeFireGameAction("Restart") end)
                     end
                 end
             end
@@ -2020,9 +2091,17 @@ task.spawn(function()
             end
 
             if stateInfo.Wave == 0 then
-                if not getgenv().Wave0StartTime or tick() - getgenv().Wave0StartTime > 30 then
-                    getgenv().Wave0StartTime = tick()
+                local char = game.Players.LocalPlayer.Character
+                if char and char:FindFirstChild("HumanoidRootPart") then
+                    if not getgenv().Wave0StartTime or tick() - getgenv().Wave0StartTime > 30 then
+                        getgenv().Wave0StartTime = tick()
+                    end
                 end
+            end
+            
+            if lastStateInfo and lastStateInfo.CurrentGameState == "Lobby" and stateInfo.CurrentGameState ~= "Lobby" then
+                isPlaying = false
+                lastHasRunMacro = false
             end
             
             if isRecording and currentStageKey and currentStageKey:find("UnknownMap") then
@@ -2035,7 +2114,7 @@ task.spawn(function()
                 end
             end
 
-            if getgenv().PendingRecord and (stateInfo.Wave == 0 or stateInfo.Wave == 1) then
+            if getgenv().PendingRecord and stateInfo.CurrentGameState ~= "Lobby" and (stateInfo.Wave == 0 or stateInfo.Wave == 1) then
                 getgenv().PendingRecord = false
                 isRecording = true
                 currentStageKey = getCurrentStageKey(stateInfo, lastStateInfo)
@@ -2046,12 +2125,13 @@ task.spawn(function()
             end
 
             if appConfig.autoPlayEnabled and not isRecording and not isPlaying and not lastHasRunMacro then
-                if (stateInfo.Wave == 0 or stateInfo.Wave == 1) and not willBeEndMatch then
+                if stateInfo.CurrentGameState ~= "Lobby" and (stateInfo.Wave == 0 or stateInfo.Wave == 1) and not willBeEndMatch then
                     local skey = getCurrentStageKey(stateInfo, lastStateInfo)
                     local macroList, matchedMacroKey = getMacroListForStage(skey)
                     if macroList and #macroList > 0 then
                         isPlaying = true
                         lastHasRunMacro = true
+                        print("[AE-LOG DEBUG] TÌM THẤY MACRO! Bắt đầu thread Playback...")
                         Fluent:Notify({Title = "Macro", Content = "Đã tìm thấy thư viện Macro cho ["..matchedMacroKey.."]. Đang bắt đầu tự động xây!", Duration = 5})
                         task.spawn(function()
                             local Event = ReplicatedStorage:WaitForChild("RemoteEvents"):WaitForChild("ReplicaSignal")
@@ -2075,24 +2155,59 @@ task.spawn(function()
                             local pId = gamePlayerDataId or 64
                             local hId = hotbarDataId or 65
                             
-                            local playStart = getgenv().Wave0StartTime or tick()
-                            for _, action in ipairs(macroList) do
+                            local initialEndIndex = #macroList
+                            local lastActionTime = 0
+                            for i, act in ipairs(macroList) do
+                                if act.type == "VoteStart" or (act.wave and act.wave > 0) then
+                                    initialEndIndex = i - 1
+                                    break
+                                end
+                                if act.time - lastActionTime > 15 then
+                                    initialEndIndex = i - 1
+                                    break
+                                end
+                                lastActionTime = act.time
+                            end
+                            print("[AE-LOG DEBUG] Bắt đầu chạy Macro! Tổng lệnh: " .. tostring(#macroList) .. " | Điểm chia Phase 1: Lệnh thứ " .. tostring(initialEndIndex))
+
+                            -- Luôn lấy tick() hiện tại làm mốc 0 để không bị tua nhanh nếu Wave0StartTime bị cũ
+                            local playStart = tick()
+                            for i, action in ipairs(macroList) do
                                 if not isPlaying or not appConfig.autoPlayEnabled then break end
+                                
+                                if i == initialEndIndex + 1 then
+                                    print("[Macro Playback] Đã xong Phase 1. Đang ép Start Game và chờ Wave 1...")
+                                    while stateInfo.Wave == 0 do
+                                        safeFireGameAction("VoteStart")
+                                        task.wait(1)
+                                        stateInfo = getGameStates()
+                                        if not isPlaying or not appConfig.autoPlayEnabled then break end
+                                    end
+                                    -- Cập nhật lại mốc thời gian để Phase 2 chạy chuẩn xác tính từ lúc Wave 1 bắt đầu
+                                    playStart = tick() - action.time
+                                end
+
                                 while (tick() - playStart) < action.time do
                                     task.wait(0.01)
                                     if not isPlaying or not appConfig.autoPlayEnabled then break end
                                 end
                                 if not isPlaying or not appConfig.autoPlayEnabled then break end
+                                
                                 if action.type == "Select" then Event:FireServer(hId, "SelectSlot", action.slot)
                                 elseif action.type == "Place" then 
                                     Event:FireServer(pId, "PlaceGameUnit", action.slot, CFrame.new(unpack(action.pos)))
                                     local execTime = tick() - playStart
                                     -- print(string.format("[Macro Playback] Đặt lính (Slot %d) lúc %.2fs | Gốc: %.2fs | Trễ: %.2fs | Wave: %s", action.slot, execTime, action.time, execTime - action.time, tostring(lastStateInfo and lastStateInfo.Wave or 0)))
-                                elseif action.type == "Upgrade" or action.type == "Sell" then
+                                elseif action.type == "VoteStart" then
+                                    safeFireGameAction("VoteStart")
+                                    local execTime = tick() - playStart
+                                    print(string.format("[Macro Playback] Đã tự động bấm VoteStart lúc %.2fs", execTime))
+                                elseif action.type == "Upgrade" or action.type == "Sell" or action.type == "AutoUpgrade" then
                                     local uId = action.unitId
                                     if action.pos then
                                         local targetPos = Vector3.new(action.pos[1], action.pos[2], action.pos[3])
-                                        local closestDist = 5
+                                        local closestDist = 20
+                                        local closestModel = nil
                                         for _, v in pairs(workspace:GetDescendants()) do
                                             if v:IsA("Model") and not v:GetAttribute("EnemyID") then
                                                 local part = v.PrimaryPart or v:FindFirstChild("HumanoidRootPart")
@@ -2100,50 +2215,75 @@ task.spawn(function()
                                                     local dist = (part.Position - targetPos).Magnitude
                                                     if dist < closestDist then
                                                         closestDist = dist
-                                                        local realId = nil
-                                                        local tStart = tick()
-                                                        local function checkTable(obj)
-                                                            for tk, tv in pairs(obj) do
-                                                                if tv == v and type(tk) == "string" and tonumber(tk) then return tk end
-                                                                if tk == v and type(tv) == "string" and tonumber(tv) then return tv end
-                                                                if type(tv) == "table" and type(tk) == "string" and tonumber(tk) then
-                                                                    if tv.Model == v or tv.Instance == v or tv.Unit == v or tv.Character == v then return tk end
-                                                                end
-                                                            end
-                                                            return nil
-                                                        end
-                                                        if CachedUnitGCMap then
-                                                            realId = checkTable(CachedUnitGCMap)
-                                                        end
-                                                        if not realId then
-                                                            for _, obj in pairs(getgc(true)) do
-                                                                if type(obj) == "table" then
-                                                                    realId = checkTable(obj)
-                                                                    if realId then
-                                                                        CachedUnitGCMap = obj
-                                                                        break
-                                                                    end
-                                                                end
-                                                            end
-                                                        end
-                                                        -- print("[Anti-Lag] Playback Scan took " .. string.format("%.5f", tick() - tStart) .. "s")
-                                                        uId = realId or (type(action.unitId) == "string" and v.Name or v)
+                                                        closestModel = v
                                                     end
                                                 end
                                             end
                                         end
+                                        
+                                        if closestModel then
+                                            local realId = nil
+                                            local function checkTable(obj)
+                                                for tk, tv in pairs(obj) do
+                                                    if tv == closestModel and type(tk) == "string" and tonumber(tk) then return tk end
+                                                    if tk == closestModel and type(tv) == "string" and tonumber(tv) then return tv end
+                                                    if type(tv) == "table" and type(tk) == "string" and tonumber(tk) then
+                                                        if tv.Model == closestModel or tv.Instance == closestModel or tv.Unit == closestModel or tv.Character == closestModel then return tk end
+                                                    end
+                                                end
+                                                return nil
+                                            end
+                                            if CachedUnitGCMap then
+                                                realId = checkTable(CachedUnitGCMap)
+                                            end
+                                            if not realId then
+                                                for _, obj in pairs(getgc(true)) do
+                                                    if type(obj) == "table" then
+                                                        realId = checkTable(obj)
+                                                        if realId then
+                                                            CachedUnitGCMap = obj
+                                                            break
+                                                        end
+                                                    end
+                                                end
+                                            end
+                                            if realId then
+                                                uId = realId
+                                            else
+                                                uId = type(action.unitId) == "string" and closestModel.Name or closestModel
+                                                warn("[AE-LOG] Failed to find NEW ID for unit at " .. tostring(closestModel.Name) .. "! Falling back to " .. tostring(uId))
+                                            end
+                                        else
+                                            warn("[AE-LOG] Macro Playback WARNING: Could not find any unit within 20 studs of recorded position for " .. tostring(action.type))
+                                        end
+                                    else
+                                        warn("[AE-LOG] Macro Playback WARNING: action.pos is MISSING for " .. tostring(action.type) .. "! Using OLD ID: " .. tostring(uId))
                                     end
+                                    
                                     if action.type == "Upgrade" then 
                                         Event:FireServer(pId, "UpgradeGameUnit", uId)
                                         local execTime = tick() - playStart
-                                        -- print(string.format("[Macro Playback] Nâng cấp lính (%s) lúc %.2fs | Trễ: %.2fs | Wave: %s", tostring(uId), execTime, execTime - action.time, tostring(lastStateInfo and lastStateInfo.Wave or 0)))
+                                        print(string.format("[Macro Playback] Nâng cấp lính (Mã MỚI: %s) lúc %.2fs", tostring(uId), execTime))
+                                    elseif action.type == "AutoUpgrade" then
+                                        Event:FireServer(pId, "ChangeGameUnitAutoUpgradePriority", uId)
+                                        local execTime = tick() - playStart
+                                        print(string.format("[Macro Playback] Bật/Tắt Auto Upgrade lính (Mã MỚI: %s) lúc %.2fs", tostring(uId), execTime))
                                     else 
                                         Event:FireServer(pId, "SellGameUnit", uId) 
                                         local execTime = tick() - playStart
-                                        -- print(string.format("[Macro Playback] Bán lính (%s) lúc %.2fs | Trễ: %.2fs | Wave: %s", tostring(uId), execTime, execTime - action.time, tostring(lastStateInfo and lastStateInfo.Wave or 0)))
+
+                                        print(string.format("[Macro Playback] Bán lính (Mã MỚI: %s) lúc %.2fs", tostring(uId), execTime))
                                     end
                                 end
                             end
+                            if initialEndIndex == #macroList then
+                                task.spawn(function()
+                                    task.wait(1)
+                                    safeFireGameAction("VoteStart")
+                                    print("[Macro Playback] Đã tự động VoteStart vì Macro đã chạy hết toàn bộ Phase 1!")
+                                end)
+                            end
+                            print("[AE-LOG DEBUG] Macro đã kết thúc an toàn!")
                             Fluent:Notify({Title = "Macro", Content = "Hoàn tất kịch bản Macro!", Duration = 3})
                             isPlaying = false
                         end)
@@ -2261,28 +2401,40 @@ local rawFireServer = Instance.new("RemoteEvent").FireServer
 oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
     local method = getnamecallmethod()
     local args = {...}
-    if not checkcaller() and method == "FireServer" and typeof(self) == "Instance" and self.Name == "ReplicaSignal" then
-        if type(args[1]) == "number" and type(args[2]) == "string" then
-            local validActions = {
-                ["Restart"] = true, ["Lobby"] = true, ["VoteStart"] = true, ["VoteRestart"] = true, ["Replay"] = true,
-                ["SelectSlot"] = true, ["PlaceGameUnit"] = true, ["UpgradeGameUnit"] = true, ["SellGameUnit"] = true,
-                ["ChangeUnitTarget"] = true
-            }
-            if validActions[args[2]] then
-                if getgenv().GameReplicaId ~= args[1] then
-                    getgenv().GameReplicaId = args[1]
+    if not checkcaller() then
+        if isRecording then
+            if method == "FireServer" or method == "InvokeServer" then
+                local actStr = "UNKNOWN"
+                if typeof(args[1]) == "string" then actStr = args[1]
+                elseif typeof(args[2]) == "string" then actStr = args[2] end
+                if not (actStr:find("Mouse") or actStr:find("Move") or actStr:find("Camera")) then
+                    print("[AE-LOG GLOBAL DEBUG] Remote: " .. tostring(self.Name) .. " | Method: " .. tostring(method) .. " | Args: " .. tostring(args[1]) .. ", " .. tostring(args[2]))
                 end
             end
         end
 
+        if method == "FireServer" and typeof(self) == "Instance" and self.Name == "ReplicaSignal" then
+            if type(args[2]) == "string" then
+                local act = args[2]
+                if act:find("Place") or act:find("Upgrade") or act:find("Sell") or act:find("Unit") or act:find("Auto") or act == "Restart" or act == "Lobby" or act == "VoteStart" or act == "VoteRestart" then
+                    local logStr = "[AE-LOG] " .. act .. " | "
+                    for i, v in ipairs(args) do logStr = logStr .. i .. "=" .. tostring(v) .. "(" .. typeof(v) .. ") " end
+                    print(logStr)
+                    warn(logStr) -- In ra warning cho de nhin
+                end
+            end
+
+
         if isRecording then
             local action = args[2]
+            if type(action) == "string" and not (action:find("Mouse") or action:find("Move") or action:find("Camera")) then
+                print("[AE-LOG DEBUG] Recorded FireServer: " .. tostring(action) .. " | Arg1: " .. tostring(args[1]))
+            end
             local currentTime = tick() - startTime
             local mList = appConfig.Macros[currentStageKey]
             if action == "SelectSlot" then
                 local curWave = lastStateInfo and lastStateInfo.Wave or 0
-                table.insert(mList, {time = currentTime, type = "Select", slot = args[3]})
-                -- print("[Macro Record] Đã lưu SelectSlot: " .. tostring(args[3]) .. " | Wave: " .. curWave)
+                table.insert(mList, {time = currentTime, type = "Select", slot = args[3], wave = curWave})
             elseif action == "PlaceGameUnit" then
                 local pArg
                 for i = 3, #args do
@@ -2291,10 +2443,13 @@ oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
                 if pArg then
                     local p = typeof(pArg) == "CFrame" and {pArg:components()} or {pArg.X, pArg.Y, pArg.Z}
                     local curWave = lastStateInfo and lastStateInfo.Wave or 0
-                    table.insert(mList, {time = currentTime, type = "Place", slot = args[3], pos = p})
-                    -- print("[Macro Record] Đã lưu PlaceGameUnit: Slot " .. tostring(args[3]) .. " | Wave: " .. curWave)
+                    table.insert(mList, {time = currentTime, type = "Place", slot = args[3], pos = p, wave = curWave})
                 end
-            elseif action == "UpgradeGameUnit" or action == "SellGameUnit" then
+            elseif action == "VoteStart" or (action == "Response" and type(args[3]) == "boolean") then
+                local curWave = lastStateInfo and lastStateInfo.Wave or 0
+                table.insert(mList, {time = currentTime, type = "VoteStart", wave = curWave})
+                print("[Macro Record] Đã lưu hành động bấm VoteStart lúc: " .. tostring(currentTime))
+            elseif action == "UpgradeGameUnit" or action == "SellGameUnit" or action == "ChangeGameUnitAutoUpgradePriority" then
                 local p
                 local targetModel = nil
                 local tStart = tick()
@@ -2334,22 +2489,30 @@ oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
                 end
                 if targetModel and targetModel:IsA("Model") then
                     local part = targetModel.PrimaryPart or targetModel:FindFirstChild("HumanoidRootPart")
-                    if part then p = {part.Position.X, part.Position.Y, part.Position.Z} end
+                    if part then 
+                        p = {part.Position.X, part.Position.Y, part.Position.Z} 
+                    else
+                        warn("[AE-LOG] Macro Record WARNING: targetModel found but no PrimaryPart or RootPart! " .. tostring(targetModel:GetFullName()))
+                    end
+                else
+                    warn("[AE-LOG] Macro Record WARNING: targetModel NOT FOUND for ID: " .. tostring(args[3]))
                 end
                 if action == "UpgradeGameUnit" then
                     local curWave = lastStateInfo and lastStateInfo.Wave or 0
-                    table.insert(mList, {time = currentTime, type = "Upgrade", unitId = args[3], pos = p})
-                    -- print("[Macro Record] Đã lưu UpgradeGameUnit: " .. tostring(args[3]) .. " | Wave: " .. curWave)
-                else
+                    table.insert(mList, {time = currentTime, type = "Upgrade", unitId = args[3], pos = p, wave = curWave})
+                elseif action == "SellGameUnit" then
                     local curWave = lastStateInfo and lastStateInfo.Wave or 0
-                    table.insert(mList, {time = currentTime, type = "Sell", unitId = args[3], pos = p})
-                    -- print("[Macro Record] Đã lưu SellGameUnit: " .. tostring(args[3]) .. " | Wave: " .. curWave)
+                    table.insert(mList, {time = currentTime, type = "Sell", unitId = args[3], pos = p, wave = curWave})
+                elseif action == "ChangeGameUnitAutoUpgradePriority" then
+                    local curWave = lastStateInfo and lastStateInfo.Wave or 0
+                    table.insert(mList, {time = currentTime, type = "AutoUpgrade", unitId = args[3], pos = p, wave = curWave})
                 end
             end
         end
         return rawFireServer(self, ...)
     end
-    return oldNamecall(self, ...)
+end
+return oldNamecall(self, ...)
 end))
 logInit("Đang kích hoạt chặn UI Rác...")
 pcall(function()
