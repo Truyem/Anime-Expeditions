@@ -1202,10 +1202,26 @@ local blackFrame = Instance.new("Frame", blackScreenGui)
 blackFrame.Size = UDim2.new(1, 0, 1, 0)
 blackFrame.BackgroundColor3 = Color3.new(0, 0, 0)
 blackFrame.Visible = false
+local blackScreenCloseBtn = Instance.new("ImageButton", blackFrame)
+blackScreenCloseBtn.Name = "CloseBlackScreenBtn"
+blackScreenCloseBtn.Size = UDim2.new(0, 110, 0, 110)
+blackScreenCloseBtn.Position = UDim2.new(0, 6, 0, 6)
+blackScreenCloseBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+blackScreenCloseBtn.BackgroundTransparency = 0.2
+blackScreenCloseBtn.Image = "rbxthumb://type=GameIcon&id=" .. game.GameId .. "&w=150&h=150"
+blackScreenCloseBtn.ZIndex = 2
+local blackScreenCloseCorner = Instance.new("UICorner", blackScreenCloseBtn)
+blackScreenCloseCorner.CornerRadius = UDim.new(0, 12)
 local coreGui = game:GetService("CoreGui")
 if gethui then blackScreenGui.Parent = gethui() else blackScreenGui.Parent = coreGui end
-Tabs.Settings:AddToggle("BlackScreen", {Title = "Black Screen (Màn hình đen)", Default = false}):OnChanged(function(v)
+local BlackScreenToggle = Tabs.Settings:AddToggle("BlackScreen", {Title = "Black Screen (Màn hình đen)", Default = false}):OnChanged(function(v)
     blackFrame.Visible = v
+end)
+blackScreenCloseBtn.MouseButton1Click:Connect(function()
+    blackFrame.Visible = false
+    if BlackScreenToggle and BlackScreenToggle.SetValue then
+        BlackScreenToggle:SetValue(false)
+    end
 end)
 local MobileGui = Instance.new("ScreenGui")
 MobileGui.Name = "MobileToggleGui"
