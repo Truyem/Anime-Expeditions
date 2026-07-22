@@ -1035,6 +1035,7 @@ TogglePlay:OnChanged(function(state)
             getgenv().IsManualRestart = true
             if sInfo.Gamemode == "Expedition" then
                 getgenv().AutoPlayRestartGameIncrement = sInfo.GameIncrement
+                getgenv().ExpeditionContinueBlocked = true
                 lastHasRunMacro = true
             else
                 getgenv().AutoPlayRestartGameIncrement = nil
@@ -2270,6 +2271,7 @@ task.spawn(function()
                     local macroList, matchedMacroKey = getMacroListForStage(skey)
                     if macroList and #macroList > 0 and hasMacroHotbarUnits() then
                         isPlaying = true
+                        if stateInfo.Gamemode == "Expedition" then getgenv().ExpeditionContinueBlocked = true end
                         lastHasRunMacro = true
                         print("[AE-LOG DEBUG] TÌM THẤY MACRO! Bắt đầu thread Playback...")
                         Fluent:Notify({Title = "Macro", Content = "Đã tìm thấy thư viện Macro cho ["..matchedMacroKey.."]. Đang bắt đầu tự động xây!", Duration = 5})
@@ -2456,6 +2458,7 @@ task.spawn(function()
                             print("[AE-LOG DEBUG] Macro đã kết thúc an toàn!")
                             Fluent:Notify({Title = "Macro", Content = "Hoàn tất kịch bản Macro!", Duration = 3})
                             isPlaying = false
+                            if stateInfo.Gamemode == "Expedition" then getgenv().ExpeditionContinueBlocked = false end
                         end)
                     elseif macroList and #macroList > 0 and tick() - (getgenv().LastEmptyHotbarMacroLog or 0) > 30 then
                         getgenv().LastEmptyHotbarMacroLog = tick()
@@ -3357,7 +3360,7 @@ local function expeditionTryOrbs()
 end
 local function expeditionTryContinue()
     if not ExpeditionAuto.autoContinue or tick() - expeditionRuntime.lastContinue < ExpeditionAuto.continueDelay + 3 then return end
-    if isPlaying then return end
+    if isPlaying or getgenv().ExpeditionContinueBlocked then return end
     local state = expeditionState()
     if not state or state.status ~= "Checkpoint" or state.current ~= "InProgress" then return end
     if ExpeditionAuto.autoShop and (expeditionRuntime.lastShopScan == 0 or tick() - expeditionRuntime.lastShopAction < 2) then return end
@@ -3386,7 +3389,7 @@ local function expeditionTryContinue()
     expeditionRuntime.lastContinue = tick()
     task.delay(ExpeditionAuto.continueDelay, function()
         local latest = expeditionState()
-        if expeditionAutomationActive() and latest and latest.status == "Checkpoint" then
+        if expeditionAutomationActive() and not isPlaying and latest and latest.status == "Checkpoint" then
             local ok, err = pcall(function() Actions.Expedition_Continue() end)
             if ok then print("[EXP AUTO] Continue Expedition") else warn("[EXP AUTO] Continue failed: " .. tostring(err)) end
         end
