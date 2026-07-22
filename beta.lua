@@ -220,6 +220,22 @@ if not state.hookedFunctionKick and typeof(hookfunction) == "function" and typeo
         log("installed direct Kick hook")
     end)
 end
+if not state.hookedTaskDelay and typeof(hookfunction) == "function" and typeof(newcclosure) == "function" then
+    pcall(function()
+        local oldDelay
+        oldDelay = hookfunction(task.delay, newcclosure(function(delayTime, callback, ...)
+            local numericDelay = tonumber(delayTime)
+            if numericDelay and numericDelay >= 30 and numericDelay <= 60 and callbackLooksLikeKick(callback) then
+                state.delayBlocks += 1
+                log(("blocked suspicious task.delay(%s), delayBlocks=%d"):format(tostring(delayTime), state.delayBlocks))
+                return task.spawn(function() end)
+            end
+            return oldDelay(delayTime, callback, ...)
+        end))
+        state.hookedTaskDelay = true
+        log("installed task.delay Kick protection")
+    end)
+end
 if not state.watchdogRunning then
     state.watchdogRunning = true
     task.spawn(function()
@@ -363,6 +379,7 @@ local function loadConfig()
     if next(appConfig.Macros) == nil and type(savedMacroBackup) == "table" then
         appConfig.Macros = savedMacroBackup
     end
+    getgenv().AnimeExpeditionsCleanLegacyIngameConfig = type(savedMacroBackup) == "table"
     appConfig.TeamSelections = appConfig.TeamSelections or {}
     appConfig.autoJoinMode = appConfig.autoJoinMode or "Start Instantly (Solo)"
     local isMobile = game:GetService("UserInputService").TouchEnabled
@@ -376,8 +393,7 @@ local function saveConfig()
     for _, k in ipairs(lobbyConfigKeys) do lobbyData[k] = appConfig[k] end
     local ingameData = {}
     for _, k in ipairs(ingameConfigKeys) do ingameData[k] = appConfig[k] end
-    ingameData.Macros = appConfig.Macros
-    pcall(function()
+        pcall(function()
         writefile(lobbyConfigPath, HttpService:JSONEncode(lobbyData))
         writefile(ingameConfigPath, HttpService:JSONEncode(ingameData))
         for mapName, macroData in pairs(appConfig.Macros) do
@@ -390,6 +406,10 @@ local function saveConfig()
 end
 logInit("Đang tải Config...")
 loadConfig()
+if getgenv().AnimeExpeditionsCleanLegacyIngameConfig then
+    saveConfig()
+    getgenv().AnimeExpeditionsCleanLegacyIngameConfig = nil
+end
 appConfig.ShopSelections = appConfig.ShopSelections or {}
 appConfig.Macros = appConfig.Macros or {}
 appConfig.autoSummonBanners = appConfig.autoSummonBanners or {}
@@ -2757,6 +2777,31 @@ appConfig.ExpeditionAuto = appConfig.ExpeditionAuto or {}
 fillExpeditionDefaults(appConfig.ExpeditionAuto, ExpeditionAutoDefaults)
 local ExpeditionAuto = appConfig.ExpeditionAuto
 ExpeditionAuto.farmTraits = ExpeditionAuto.farmTraits or {}
+local function expeditionUniqueList(values)
+    local result, seen = {}, {}
+    for _, value in ipairs(type(values) == "table" and values or {}) do
+        if type(value) == "string" and value ~= "" and not seen[value] then
+            seen[value] = true
+            table.insert(result, value)
+        end
+    end
+    return result
+end
+local normalizedFarmTraits = {}
+for key, value in pairs(ExpeditionAuto.farmTraits or {}) do
+    if type(key) == "string" and value then normalizedFarmTraits[key] = true
+    elseif type(key) == "number" and type(value) == "string" then normalizedFarmTraits[value] = true end
+end
+ExpeditionAuto.farmTraits = normalizedFarmTraits
+local normalizedDamageTraits = {}
+for key, value in pairs(ExpeditionAuto.damageTraits or {}) do
+    if type(key) == "string" and value then normalizedDamageTraits[key] = true
+    elseif type(key) == "number" and type(value) == "string" then normalizedDamageTraits[value] = true end
+end
+ExpeditionAuto.damageTraits = normalizedDamageTraits
+ExpeditionAuto.upgradePriority = expeditionUniqueList(ExpeditionAuto.upgradePriority)
+ExpeditionAuto.statPriority = expeditionUniqueList(ExpeditionAuto.statPriority)
+saveConfig()
 for index = 1, 10 do
     if type(ExpeditionAuto.helperPositions[index]) ~= "table" then
         ExpeditionAuto.helperPositions[index] = {}
@@ -2860,10 +2905,13 @@ local function expeditionRun(label, callback)
     end
 end
 local function expeditionListFromDropdown(value)
-    local result = {}
+    local result, seen = {}, {}
     for key, enabled in pairs(value or {}) do
-        if type(key) == "string" and enabled then table.insert(result, key)
-        elseif type(key) == "number" and type(enabled) == "string" then table.insert(result, enabled) end
+        local selected = type(key) == "string" and enabled and key
+        if selected and not seen[selected] then
+            seen[selected] = true
+            table.insert(result, selected)
+        end
     end
     table.sort(result)
     return result
@@ -2872,7 +2920,7 @@ local function expeditionSetFromDropdown(value)
     local result = {}
     for key, enabled in pairs(value or {}) do
         if type(key) == "string" and enabled then result[key] = true
-        elseif type(key) == "number" and type(enabled) == "string" then result[enabled] = true end
+    end
     end
     return result
 end
@@ -3030,14 +3078,22 @@ local function expeditionTryCards()
         if #buttons > 0 then warn("[EXP AUTO] Card button count does not match choices: " .. #buttons .. "/" .. #cards) end
         return
     end
-    local responseKey = signature .. ":" .. tostring(button.AbsolutePosition)
+    local cardSelectionId = ""
+    for _, value in ipairs(getgc(true)) do
+        if type(value) == "table" and rawget(value, "Id") and rawget(value, "Token") == "CardSelection" then
+            cardSelectionId = tostring(value.Id)
+            break
+        end
+    end
+    local responseKey = cardSelectionId .. ":" .. signature .. ":" .. tostring(button.AbsolutePosition)
     if expeditionRuntime.respondedCardKey == responseKey then return end
     local ok, err = pcall(function()
         if type(firesignal) ~= "function" then error("firesignal is unavailable") end
         firesignal(button.Activated)
+        firesignal(button.MouseButton1Click)
     end)
     if ok then
-        print("[EXP AUTO] Clicked card #" .. choice .. ": " .. labels[choice])
+        print("[EXP AUTO] Activated card #" .. choice .. ": " .. labels[choice])
         expeditionRuntime.respondedCardKey = responseKey
         expeditionRuntime.lastCard = tick()
     else
@@ -3287,10 +3343,12 @@ local function expeditionTryOrbs()
         local pickups = replica and replica.Data and replica.Data.RewardPickups or {}
         expeditionRuntime.orbQueue = {}
         for key in pairs(pickups) do table.insert(expeditionRuntime.orbQueue, key) end
-        for _, value in pairs(getgc(true)) do
-            if type(value) == "table" and rawget(value, "Id") and rawget(value, "Token") == "GameState" then
-                expeditionRuntime.orbGameStateId = value.Id
-                break
+        if not expeditionRuntime.orbGameStateId then
+            for _, value in pairs(getgc(true)) do
+                if type(value) == "table" and rawget(value, "Id") and rawget(value, "Token") == "GameState" then
+                    expeditionRuntime.orbGameStateId = value.Id
+                    break
+                end
             end
         end
         print(string.format("[EXP AUTO] Orb scan: %d pending in %.3fs; next scan in %ss", #expeditionRuntime.orbQueue, tick() - startedAt, tostring(ExpeditionAuto.orbScanDelay)))
@@ -3381,7 +3439,13 @@ Tabs.Macro:AddToggle("ExpeditionAutoAnvil", {Title = "Tự mua / dùng Đe", Def
 Tabs.Macro:AddSection("Cửa Hàng Checkpoint")
 Tabs.Macro:AddParagraph({Title = "Trait Sách Cần Mua", Content = "Chỉ mua Sách có Trait phù hợp với danh sách đã chọn và Unit tương ứng đã được đặt."})
 Tabs.Macro:AddDropdown("ExpeditionAutoDamageTraits", {Title = "Damage Unit Tome Traits", Values = traitOptions, Multi = true, Default = expeditionListFromDropdown(ExpeditionAuto.damageTraits)}):OnChanged(function(value) ExpeditionAuto.damageTraits = expeditionSetFromDropdown(value); saveConfig(); refreshExpeditionTomeTraitSummary(); print("[EXP AUTO] Saved damage traits: " .. table.concat(expeditionListFromDropdown(ExpeditionAuto.damageTraits), ", ")) end)
-Tabs.Macro:AddDropdown("ExpeditionAutoFarmTraits", {Title = "Farm Unit Tome Traits", Values = traitOptions, Multi = true, Default = expeditionListFromDropdown(ExpeditionAuto.farmTraits)}):OnChanged(function(value) ExpeditionAuto.farmTraits = expeditionSetFromDropdown(value); saveConfig(); refreshExpeditionTomeTraitSummary(); print("[EXP AUTO] Saved farm traits: " .. table.concat(expeditionListFromDropdown(ExpeditionAuto.farmTraits), ", ")) end)
+local function saveFarmTraits(value)
+    ExpeditionAuto.farmTraits = expeditionSetFromDropdown(value)
+    saveConfig()
+    refreshExpeditionTomeTraitSummary()
+    print("[EXP AUTO] Saved farm traits: " .. table.concat(expeditionListFromDropdown(ExpeditionAuto.farmTraits), ", "))
+end
+Tabs.Macro:AddDropdown("ExpeditionAutoFarmTraits", {Title = "Trait Unit Farm", Values = traitOptions, Multi = true, Default = expeditionListFromDropdown(ExpeditionAuto.farmTraits), Callback = saveFarmTraits}):OnChanged(saveFarmTraits)
 tomeTraitParagraph = Tabs.Macro:AddParagraph({Title = "Trait Đang Chọn", Content = expeditionTomeTraitSummary()})
 Tabs.Macro:AddToggle("ExpeditionAutoShop", {Title = "Tự mua Shop Checkpoint", Default = ExpeditionAuto.autoShop}):OnChanged(function(value) ExpeditionAuto.autoShop = value; saveConfig() end)
 Tabs.Macro:AddToggle("ExpeditionAutoTome", {Title = "Tự mua / dùng Sách Trait", Default = ExpeditionAuto.buyTome}):OnChanged(function(value) ExpeditionAuto.buyTome = value; ExpeditionAuto.autoUseTome = value; saveConfig() end)
