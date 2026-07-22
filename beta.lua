@@ -2753,6 +2753,7 @@ local ExpeditionAutoDefaults = {
     buyRepair = true,
     buyAnvil = true,
     autoUseTome = true,
+    autoUseRepair = true,
     autoUseAnvil = true,
     damageTraits = {},
     farmTraits = {},
@@ -2819,6 +2820,9 @@ local expeditionRuntime = {
     lastBuy = 0,
     lastShopScan = 0,
     lastShopAction = 0,
+    pendingRepairCount = nil,
+    pendingRepairAt = 0,
+    pendingAnvilPurchaseAt = nil,
     firstCheckpointIncrement = nil,
     lastContinue = 0,
     lastUse = 0,
@@ -2838,7 +2842,14 @@ local expeditionRuntime = {
     lastErrorLog = {},
     refreshedShopSnapshots = {},
     shopPurchaseRequests = {},
+    tomePurchasedCycles = {},
+    repairPurchasedSnapshots = {},
     unboundTargets = {},
+    cardPending = nil,
+    continueScheduledAt = nil,
+    continueWatchdog = nil,
+    lastContinueBlock = "",
+    lastContinueState = "",
 }
 local farmExpeditionAssets = {Ichiraku = true, Senku = true}
 local expeditionPotentialOrder = {Z = 14, SSS = 13, SS = 12, S = 11, ["A+"] = 10, A = 9, ["A-"] = 8, ["B+"] = 7, B = 6, ["B-"] = 5, ["C+"] = 4, C = 3, ["C-"] = 2, F = 1}
@@ -2863,6 +2874,8 @@ local function expeditionState()
         status = expeditionPeek(state.Status),
         current = expeditionPeek(state.CurrentGameState),
         wave = expeditionPeek(state.Wave),
+        enemyCount = tonumber(expeditionPeek(state.EnemyCount)) or 0,
+        active = expeditionPeek(state.Active) == true,
         health = tonumber(expeditionPeek(state.BaseHealth)),
         maxHealth = tonumber(expeditionPeek(state.BaseMaxHealth)),
         increment = tonumber(expeditionPeek(state.GameIncrement)) or 0,
@@ -2922,8 +2935,7 @@ end
 local function expeditionSetFromDropdown(value)
     local result = {}
     for key, enabled in pairs(value or {}) do
-        if type(key) == "string" and enabled then result[key] = true
-    end
+        if type(key) == "string" and enabled then result[key] = true end
     end
     return result
 end
@@ -2958,13 +2970,12 @@ local function expeditionPlacedTarget(kind, options)
         local asset = type(data) == "table" and (data.Asset or (type(unitData) == "table" and unitData.Asset))
         local isFarm = farmExpeditionAssets[asset] == true
         if asset and not data.IsClone and ((kind == "Farm" and isFarm) or (kind == "Damage" and not isFarm)) then
-            local gameUnitId
-            for unitId, model in pairs(expeditionPeek(Dependencies.GameUnitModels) or {}) do
-                if model == id then gameUnitId = tostring(unitId) break end
-            end
+            local gameUnitId = data.ID or data.GameUnitID or data.GameID
+            gameUnitId = gameUnitId and tostring(gameUnitId) or nil
             local trait = type(unitData) == "table" and unitData.Trait
             local hasTrait = trait and trait ~= "" and trait ~= "None"
             if (not options or not options.traitless or not hasTrait)
+                and (not options or not options.traitFilter or options.traitFilter(trait, hasTrait))
                 and (not options or not options.skipUnboundTargets or not expeditionRuntime.unboundTargets[gameUnitId])
                 and (not options or not options.skipExistingUnbound or trait ~= "Unbound") then
                 table.insert(candidates, {id = id, gameUnitId = gameUnitId, asset = asset, data = unitData})
@@ -2983,6 +2994,57 @@ local function expeditionHotbarItem(asset)
     end
     return nil
 end
+local function expeditionHotbarItems(asset)
+    local hotbar = expeditionPeek(Dependencies.HotbarState)
+    local slots = hotbar and expeditionPeek(hotbar.Slots)
+    local items = {}
+    for slotIndex, slot in pairs(type(slots) == "table" and slots or {}) do
+        local data = type(slot) == "table" and expeditionPeek(slot.Data)
+        if type(slot) == "table" and slot.AssetType == "Item" and data and data.Asset == asset then
+            table.insert(items, {slot = tonumber(slotIndex), id = slot.ID, data = data})
+        end
+    end
+    table.sort(items, function(a, b) return (a.slot or math.huge) < (b.slot or math.huge) end)
+    return items
+end
+local function expeditionTomeConfigured()
+    return ExpeditionAuto.buyTome and ExpeditionAuto.autoUseTome
+        and (#expeditionListFromDropdown(ExpeditionAuto.damageTraits) > 0 or #expeditionListFromDropdown(ExpeditionAuto.farmTraits) > 0)
+end
+local function expeditionAnvilConfigured()
+    return ExpeditionAuto.buyAnvil and ExpeditionAuto.autoUseAnvil and ExpeditionAuto.autoCards and #ExpeditionAuto.statPriority > 0
+end
+local function expeditionRepairConfigured()
+    return ExpeditionAuto.buyRepair and ExpeditionAuto.autoUseRepair
+end
+local function expeditionConfiguredTomeKind(trait)
+    if trait == "Unbound" then
+        return expeditionTraitSelected(ExpeditionAuto.damageTraits, trait) and "Damage" or nil
+    end
+    if expeditionTraitSelected(ExpeditionAuto.farmTraits, trait) then return "Farm" end
+    if expeditionTraitSelected(ExpeditionAuto.damageTraits, trait) then return "Damage" end
+    return nil
+end
+local function expeditionHotbarFull()
+    local hotbar = expeditionPeek(Dependencies.HotbarState)
+    local slots = hotbar and expeditionPeek(hotbar.Slots)
+    local occupied = 0
+    for _ in pairs(type(slots) == "table" and slots or {}) do occupied += 1 end
+    local maxSlots = tonumber(hotbar and expeditionPeek(hotbar.MaxSlots))
+    return maxSlots ~= nil and occupied >= maxSlots
+end
+local function expeditionHotbarItemCount(asset)
+    local hotbar = expeditionPeek(Dependencies.HotbarState)
+    local slots = hotbar and expeditionPeek(hotbar.Slots)
+    local count = 0
+    for _, slot in pairs(type(slots) == "table" and slots or {}) do
+        local data = type(slot) == "table" and expeditionPeek(slot.Data)
+        if type(slot) == "table" and slot.AssetType == "Item" and data and data.Asset == asset then
+            count += tonumber(slot.Amount) or tonumber(data.Amount) or 1
+        end
+    end
+    return count
+end
 local function expeditionOwnsItem(asset)
     if expeditionHotbarItem(asset) then return true end
     local playerData = expeditionPeek(Dependencies.PlayerData)
@@ -2996,7 +3058,9 @@ local function expeditionUseHotbarItem(item, gameUnitId)
     task.wait(0.35)
     local abilityId
     for _, value in ipairs(getgc(true)) do
-        if type(value) == "table" and rawget(value, "Id") and rawget(value, "Token") == "AbilityInput" then abilityId = value.Id break end
+        if type(value) == "table" and rawget(value, "Id") and rawget(value, "Token") == "AbilityInput" then
+            if not abilityId or value.Id > abilityId then abilityId = value.Id end
+        end
     end
     if not abilityId then return false, "AbilityInput replica missing" end
     ReplicatedStorage.RemoteEvents.ReplicaSignal:FireServer(abilityId, "Response", gameUnitId)
@@ -3005,14 +3069,57 @@ end
 local function expeditionTomeTarget(item, queuedKind)
     if not item then return nil, nil end
     local trait = item.data and item.data.Trait
-    local isUnbound = trait == "Unbound"
-    if isUnbound then
+    local kind = expeditionConfiguredTomeKind(trait)
+    if trait == "Unbound" then
         return expeditionPlacedTarget("Damage", {skipUnboundTargets = true, skipExistingUnbound = true}), "Damage"
     end
-    local kind = trait == "Investor" and "Farm" or "Damage"
-    return expeditionPlacedTarget(kind, {
+    if kind == "Farm" then
+        return expeditionPlacedTarget("Farm", {
+            traitFilter = function(currentTrait, hasTrait)
+                return not hasTrait or not expeditionTraitSelected(ExpeditionAuto.farmTraits, currentTrait)
+            end,
+        }), "Farm"
+    end
+    if kind == "Damage" then
+        return expeditionPlacedTarget("Damage", {
+            traitFilter = function(currentTrait, hasTrait)
+                return currentTrait ~= "Unbound" and (not hasTrait or not expeditionTraitSelected(ExpeditionAuto.damageTraits, currentTrait))
+            end,
+        }), "Damage"
+    end
+    -- Unconfigured non-Farm Tomes may fill empty Damage units, but never overwrite a Trait.
+    return expeditionPlacedTarget("Damage", {
         traitless = true,
-    }), kind
+    }), "Damage"
+end
+local function expeditionTomeWithTarget()
+    local bestItem, bestTarget, bestKind, bestPriority
+    for _, item in ipairs(expeditionHotbarItems("ExpeditionTome")) do
+        local target, kind = expeditionTomeTarget(item)
+        if target and target.gameUnitId then
+            local trait = item.data and item.data.Trait
+            local priority = trait == "Unbound" and 0 or (expeditionConfiguredTomeKind(trait) and 1 or 2)
+            if not bestPriority or priority < bestPriority then
+                bestItem, bestTarget, bestKind, bestPriority = item, target, kind, priority
+            end
+        end
+    end
+    return bestItem, bestTarget, bestKind
+end
+local function expeditionNeedsAnyTome()
+    for trait, selected in pairs(ExpeditionAuto.damageTraits or {}) do
+        if selected then
+            local target = expeditionTomeTarget({data = {Trait = trait}})
+            if target and target.gameUnitId then return true end
+        end
+    end
+    for trait, selected in pairs(ExpeditionAuto.farmTraits or {}) do
+        if selected and trait ~= "Unbound" then
+            local target = expeditionTomeTarget({data = {Trait = trait}})
+            if target and target.gameUnitId then return true end
+        end
+    end
+    return false
 end
 local function expeditionPlaceUsingMacroRemote(slot, cframe)
     local remoteEvents = ReplicatedStorage:FindFirstChild("RemoteEvents")
@@ -3033,74 +3140,123 @@ local function expeditionPlaceUsingMacroRemote(slot, cframe)
     replicaSignal:FireServer(replicaId, "PlaceGameUnit", slot, cframe)
     return true
 end
-local function expeditionTryCards()
-    if not ExpeditionAuto.autoCards or tick() - expeditionRuntime.lastCard < 2 then return end
-    local selector = expeditionPeek(Dependencies.CardSelector)
-    local cards = selector and expeditionPeek(selector.Cards)
-    if type(cards) ~= "table" or #cards == 0 then return end
-    local labels = {}
-    for index, card in ipairs(cards) do
-        labels[index] = type(card) == "table" and (card.Name or card.Stat or card.Upgrade or "?") or tostring(card)
+local function expeditionUpgradeButtons()
+    local buttons, seen, container = {}, {}, nil
+    local roots = {LocalPlayer.PlayerGui:FindFirstChild("CardSelection"), LocalPlayer.PlayerGui:FindFirstChild("Prompt")}
+    for _, root in ipairs(roots) do
+        if root then
+        for _, object in ipairs(root:GetDescendants()) do
+            if object:IsA("TextLabel") and object.Visible and object.Text == "Select Upgrade" then
+                local button = object:FindFirstAncestorWhichIsA("TextButton")
+                if button and button.Visible and not seen[button] then
+                    seen[button] = true
+                    container = container or root
+                    table.insert(buttons, button)
+                end
+            end
+        end
+        end
     end
-    local choice = nil
+    table.sort(buttons, function(a, b) return a.AbsolutePosition.X < b.AbsolutePosition.X end)
+    return buttons, container
+end
+local function expeditionIsStatAnvilPrompt(container)
+    if not container then return false end
+    for _, object in ipairs(container:GetDescendants()) do
+        if object:IsA("TextLabel") and object.Visible and object.Text == "Stat Anvil" then return true end
+    end
+    return false
+end
+local function expeditionNormalizedLabel(value)
+    return tostring(value or ""):lower():gsub("[^%w]", "")
+end
+local function expeditionTryCards()
+    if not ExpeditionAuto.autoCards then return end
+    local buttons, prompt = expeditionUpgradeButtons()
+    if #buttons > 0 and expeditionIsStatAnvilPrompt(prompt) and not expeditionAnvilConfigured() then return end
+    if expeditionRuntime.cardPending then
+        if #buttons == 0 then
+            print("[EXP CARD] Selection confirmed: " .. expeditionRuntime.cardPending.label)
+            expeditionRuntime.cardPending = nil
+            expeditionRuntime.lastCard = tick()
+        elseif tick() - expeditionRuntime.cardPending.sentAt < 0.75 then
+            return
+        else
+            warn("[EXP CARD] Selection not confirmed after 0.75s; retrying " .. expeditionRuntime.cardPending.label)
+            expeditionRuntime.cardPending = nil
+        end
+    end
+    if #buttons == 0 then return end
+    local knownNames = {}
+    for id, card in pairs(require(SharedInfo.GameUpgradesInfo).Cards or {}) do knownNames[expeditionNormalizedLabel(card.Name or id)] = card.Name or id end
+    for stat in pairs(ExpeditionInfo.StatAnvils.Stats or {}) do knownNames[expeditionNormalizedLabel(stat)] = stat end
+    local entries = {}
+    for buttonIndex, button in ipairs(buttons) do
+        local entry = {button = button, name = "Card #" .. buttonIndex, texts = {}}
+        local ancestor = button.Parent
+        for _ = 1, 8 do
+            if not ancestor or ancestor == prompt then break end
+            local selectButtons = 0
+            for _, object in ipairs(ancestor:GetDescendants()) do
+                if object:IsA("TextLabel") and object.Text == "Select Upgrade" then
+                    local selectButton = object:FindFirstAncestorWhichIsA("TextButton")
+                    if selectButton and selectButton:IsDescendantOf(ancestor) then selectButtons += 1 end
+                end
+            end
+            if selectButtons == 1 then
+                local foundName
+                for _, object in ipairs(ancestor:GetDescendants()) do
+                    if object:IsA("TextLabel") and object.Visible then
+                        entry.texts[object.Text] = true
+                        local knownName = knownNames[expeditionNormalizedLabel(object.Text)]
+                        if knownName then foundName = object.Text end
+                    end
+                end
+                if foundName then entry.name = foundName; break end
+            end
+            ancestor = ancestor.Parent
+        end
+        table.insert(entries, entry)
+    end
+    local choice, reason
     for _, wanted in ipairs(ExpeditionAuto.upgradePriority) do
-        for index, card in ipairs(cards) do
-            if type(card) == "table" and (card.Name == wanted or card.Upgrade == wanted or card.Stat == wanted) then choice = index break end
+        local normalizedWanted = expeditionNormalizedLabel(wanted)
+        for index, entry in ipairs(entries) do
+            for text in pairs(entry.texts) do if expeditionNormalizedLabel(text) == normalizedWanted then choice, reason = index, "upgradePriority=" .. wanted break end end
+            if choice then break end
         end
         if choice then break end
     end
     if not choice then
         for _, wanted in ipairs(ExpeditionAuto.statPriority) do
-            for index, card in ipairs(cards) do
-                if type(card) == "table" and (card.Stat == wanted or card.Name == wanted) then choice = index break end
+            local normalizedWanted = expeditionNormalizedLabel(wanted)
+            for index, entry in ipairs(entries) do
+                for text in pairs(entry.texts) do if expeditionNormalizedLabel(text) == normalizedWanted then choice, reason = index, "statPriority=" .. wanted break end end
+                if choice then break end
             end
             if choice then break end
         end
     end
-    choice = choice or (ExpeditionAuto.cardFallback == "Random" and math.random(1, #cards) or 1)
+    if not choice then
+        choice = ExpeditionAuto.cardFallback == "Random" and math.random(1, #entries) or 1
+        reason = "fallback=" .. tostring(ExpeditionAuto.cardFallback)
+    end
+    local labels = {}
+    for index, entry in ipairs(entries) do labels[index] = entry.name end
     local signature = table.concat(labels, " | ")
-    if expeditionRuntime.lastCardSignature ~= signature then
-        expeditionRuntime.lastCardSignature = signature
-        print("[EXP AUTO] Card options: " .. signature)
-    end
-    -- The server rejects guessed CardSelection replica responses. Use the same visible button
-    -- that a player clicks, ordered from left to right to match CardSelector.Cards.
-    local prompt = LocalPlayer.PlayerGui:FindFirstChild("Prompt")
-    local buttons = {}
-    if prompt then
-        for _, object in ipairs(prompt:GetDescendants()) do
-            if object:IsA("TextButton") and object.Visible then
-                local textLabel = object:FindFirstChildWhichIsA("TextLabel", true)
-                if textLabel and textLabel.Text == "Select Upgrade" then table.insert(buttons, object) end
-            end
-        end
-    end
-    table.sort(buttons, function(a, b) return a.AbsolutePosition.X < b.AbsolutePosition.X end)
-    local button = buttons[choice]
-    if not button then
-        if #buttons > 0 then warn("[EXP AUTO] Card button count does not match choices: " .. #buttons .. "/" .. #cards) end
-        return
-    end
-    local cardSelectionId = ""
-    for _, value in ipairs(getgc(true)) do
-        if type(value) == "table" and rawget(value, "Id") and rawget(value, "Token") == "CardSelection" then
-            cardSelectionId = tostring(value.Id)
-            break
-        end
-    end
-    local responseKey = cardSelectionId .. ":" .. signature .. ":" .. tostring(button.AbsolutePosition)
-    if expeditionRuntime.respondedCardKey == responseKey then return end
+    if expeditionRuntime.lastCardSignature ~= signature then expeditionRuntime.lastCardSignature = signature; print("[EXP CARD] Options: " .. signature) end
+    local button = entries[choice] and entries[choice].button
+    if not button then return end
+    local responseKey = signature .. ":" .. tostring(button.AbsolutePosition)
+    print("[EXP CARD] Choosing " .. labels[choice] .. " because " .. reason)
     local ok, err = pcall(function()
         if type(firesignal) ~= "function" then error("firesignal is unavailable") end
         firesignal(button.Activated)
-        firesignal(button.MouseButton1Click)
     end)
     if ok then
-        print("[EXP AUTO] Activated card #" .. choice .. ": " .. labels[choice])
-        expeditionRuntime.respondedCardKey = responseKey
-        expeditionRuntime.lastCard = tick()
+        expeditionRuntime.cardPending = {key = responseKey, label = labels[choice], sentAt = tick()}
     else
-        warn("[EXP AUTO] Card button click failed: " .. tostring(err))
+        warn("[EXP CARD] Click failed: " .. tostring(err))
     end
 end
 local function expeditionTryHire()
@@ -3129,6 +3285,7 @@ local function expeditionTryHelpers()
         expeditionRuntime.helperGameIncrement = increment
         expeditionRuntime.helperPending = {}
         expeditionRuntime.helperUsedPositions = {}
+        expeditionRuntime.unboundTargets = {}
     end
     local playerState = expeditionPeek(Dependencies.GamePlayerState)
     local totalPlaced = tonumber(playerState and expeditionPeek(playerState.TotalUnitsPlaced)) or 0
@@ -3165,10 +3322,22 @@ end
 local function expeditionTryShop()
     expeditionRuntime.shopPhase = "gate"
     if not ExpeditionAuto.autoShop or tick() - expeditionRuntime.lastBuy < 1 then return end
+    if #expeditionUpgradeButtons() > 0 then expeditionRuntime.shopPhase = "upgrade popup open"; return end
     expeditionRuntime.shopPhase = "get replica"
     local state, replica = expeditionState(), expeditionShopReplica()
     if not state or state.status ~= "Checkpoint" or not replica then return end
-    if ExpeditionAuto.autoUseTome and expeditionHotbarItem("ExpeditionTome") then return end
+    if ExpeditionAuto.autoUseTome and expeditionTomeWithTarget() then return end
+    if expeditionAnvilConfigured() and expeditionHotbarItem("ExpeditionStatAnvil") then return end
+    if expeditionRuntime.pendingAnvilPurchaseAt then
+        if expeditionRuntime.lastCard > expeditionRuntime.pendingAnvilPurchaseAt then
+            expeditionRuntime.pendingAnvilPurchaseAt = nil
+        elseif tick() - expeditionRuntime.pendingAnvilPurchaseAt < 10 then
+            return
+        else
+            warn("[EXP SHOP] Anvil purchase was not observed after 10s; allowing one retry")
+            expeditionRuntime.pendingAnvilPurchaseAt = nil
+        end
+    end
     if expeditionRuntime.firstCheckpointIncrement ~= state.increment then
         expeditionRuntime.firstCheckpointIncrement = state.increment
         expeditionRuntime.lastShopScan = tick()
@@ -3178,34 +3347,42 @@ local function expeditionTryShop()
     expeditionRuntime.lastShopScan = tick()
     local playerState = expeditionPeek(Dependencies.GamePlayerState)
     local yen = tonumber(playerState and expeditionPeek(playerState.Yen)) or 0
+    local repairCount = expeditionHotbarItemCount("ExpeditionRepair")
+    expeditionRuntime.repairPurchaseAvailable = false
+    if expeditionRuntime.lastRepairCount ~= repairCount then
+        expeditionRuntime.lastRepairCount = repairCount
+        print("[EXP SHOP] Repair count: " .. repairCount .. "/2")
+    end
+    if expeditionRuntime.pendingRepairCount then
+        if repairCount > expeditionRuntime.pendingRepairCount then
+            print("[EXP SHOP] Repair purchase confirmed: " .. repairCount .. "/2")
+            expeditionRuntime.pendingRepairCount = nil
+        elseif tick() - expeditionRuntime.pendingRepairAt < 2 then
+            return
+        else
+            print("[EXP SHOP] Repair request finished; waiting for a new shop refresh")
+            expeditionRuntime.pendingRepairCount = nil
+        end
+    end
     for shopKey, shop in pairs(replica.Data.Shops or {}) do
         expeditionRuntime.shopPhase = "scan tome " .. tostring(shopKey)
         local hasWantedTome = false
         local snapshot = {}
+        local refreshVersion = tonumber(replica.Data.Refreshes and replica.Data.Refreshes[shopKey]) or 0
+        local shopCycleKey = table.concat({tostring(replica.Data.DataKey), tostring(shopKey), tostring(state.increment), tostring(refreshVersion)}, ":")
         for index, item in ipairs(shop.Items or {}) do
             table.insert(snapshot, table.concat({tostring(item.Name), tostring(item.Stock), tostring(item.Data and item.Data.Trait)}, ":"))
-            if item.Name == "ExpeditionTome" and ExpeditionAuto.buyTome then
+            if item.Name == "ExpeditionTome" and expeditionTomeConfigured() and not expeditionHotbarFull() and not expeditionRuntime.tomePurchasedCycles[shopCycleKey] then
                 local trait = item.Data and item.Data.Trait
-                local tomeKind
-                local damageTraitless = expeditionPlacedTarget("Damage", {traitless = true})
-                local farmTraitless = expeditionPlacedTarget("Farm", {traitless = true})
-                if trait == "Unbound" then
-                    if not damageTraitless and expeditionPlacedTarget("Damage", {skipUnboundTargets = true, skipExistingUnbound = true}) then
-                        tomeKind = "Damage"
-                    elseif not farmTraitless and expeditionPlacedTarget("Farm", {skipUnboundTargets = true, skipExistingUnbound = true}) then
-                        tomeKind = "Farm"
-                    end
-                elseif trait then
-                    if expeditionTraitSelected(ExpeditionAuto.damageTraits, trait) and damageTraitless then
-                        tomeKind = "Damage"
-                    elseif trait == "Investor" and farmTraitless then
-                        tomeKind = "Farm"
-                    end
-                end
-                hasWantedTome = tomeKind ~= nil and (item.Stock == nil or item.Stock > 0)
-                    if hasWantedTome then
-                        local requestKey = tostring(replica.Data.DataKey) .. ":" .. shopKey .. ":" .. index .. ":" .. trait .. ":" .. tostring(item.Stock)
-                        if yen >= (tonumber(item.Price) or math.huge) and not expeditionRuntime.shopPurchaseRequests[requestKey] then
+                local tomeKind = expeditionConfiguredTomeKind(trait)
+                local tomeTarget = tomeKind and expeditionTomeTarget({data = {Trait = trait}})
+                if not tomeTarget or not tomeTarget.gameUnitId then tomeKind = nil end
+                local itemWanted = tomeKind ~= nil and (item.Stock == nil or item.Stock > 0)
+                    if itemWanted then
+                        local requestKey = shopCycleKey .. ":" .. index .. ":" .. trait .. ":" .. tostring(item.Stock)
+                        if expeditionRuntime.shopPurchaseRequests[requestKey] then
+                            itemWanted = false
+                        elseif yen >= (tonumber(item.Price) or math.huge) then
                             expeditionRuntime.shopPhase = "purchase tome"
                             expeditionRuntime.shopPurchaseRequests[requestKey] = true
                             local ok, err = pcall(function() replica:FireServer("PurchaseItem", shopKey, index, 1) end)
@@ -3214,17 +3391,51 @@ local function expeditionTryShop()
                                 warn("[EXP AUTO] Tome purchase request failed: " .. tostring(err))
                                 return
                             end
+                            expeditionRuntime.tomePurchasedCycles[shopCycleKey] = true
                             table.insert(expeditionRuntime.tomeQueue, tomeKind)
                             print("[EXP AUTO] Purchase requested: ExpeditionTome - " .. trait)
                             expeditionRuntime.lastBuy = tick()
                             expeditionRuntime.lastShopAction = tick()
                             return
+                        elseif tick() - expeditionRuntime.lastNoYenLog >= 3 then
+                            expeditionRuntime.lastNoYenLog = tick()
+                            print("[EXP SHOP] Not enough Yen for selected Tome; continuing")
                         end
+                        hasWantedTome = hasWantedTome or itemWanted
                     end
                 end
             end
-        local snapshotKey = tostring(replica.Data.DataKey) .. ":" .. tostring(shopKey) .. ":" .. table.concat(snapshot, "|")
-        if not hasWantedTome and expeditionRuntime.refreshedShopSnapshots[snapshotKey] == nil and tick() - expeditionRuntime.lastBuy > 1.5 then
+        local snapshotKey = shopCycleKey .. ":" .. table.concat(snapshot, "|")
+        if hasWantedTome then return end
+        if expeditionRepairConfigured() and repairCount < 2 and not expeditionRuntime.repairPurchasedSnapshots[shopCycleKey] then
+            for index, item in ipairs(shop.Items or {}) do
+                if item.Name == "ExpeditionRepair" and (item.Stock == nil or item.Stock > 0) then
+                    if yen < (tonumber(item.Price) or math.huge) then
+                        if tick() - expeditionRuntime.lastNoYenLog >= 3 then
+                            expeditionRuntime.lastNoYenLog = tick()
+                            print("[EXP SHOP] Not enough Yen for Repair; continuing")
+                        end
+                        return
+                    end
+                    expeditionRuntime.repairPurchaseAvailable = true
+                    expeditionRuntime.shopPhase = "purchase repair"
+                    local ok, err = pcall(function() replica:FireServer("PurchaseItem", shopKey, index, 1) end)
+                    if not ok then warn("[EXP SHOP] Repair purchase request failed: " .. tostring(err)); return end
+                    expeditionRuntime.repairPurchasedSnapshots[shopCycleKey] = true
+                    expeditionRuntime.pendingRepairCount = repairCount
+                    expeditionRuntime.pendingRepairAt = tick()
+                    expeditionRuntime.lastShopAction = tick()
+                    print("[EXP SHOP] Decision: buy Repair (" .. repairCount .. "/2)")
+                    return
+                end
+            end
+        end
+        local maxRefreshes = tonumber(shop.MaxRefreshes)
+        local usedRefreshes = refreshVersion
+        local canRefresh = maxRefreshes == nil or usedRefreshes < maxRefreshes
+        local usesFiniteStock = (expeditionRepairConfigured() and repairCount < 2)
+            or (expeditionTomeConfigured() and not expeditionHotbarFull() and expeditionNeedsAnyTome())
+        if usesFiniteStock and canRefresh and expeditionRuntime.refreshedShopSnapshots[snapshotKey] == nil and tick() - expeditionRuntime.lastBuy > 1.5 then
             expeditionRuntime.shopPhase = "refresh"
             local ok, err = pcall(function() replica:FireServer("Refresh", shopKey) end)
             if ok then
@@ -3237,15 +3448,15 @@ local function expeditionTryShop()
             end
         end
         -- Only after Tome purchase/refresh is resolved may the shop buy support items.
-        if hasWantedTome then return end
+        if not expeditionAnvilConfigured() or expeditionOwnsItem("ExpeditionStatAnvil") then return end
         for index, item in ipairs(shop.Items or {}) do
             expeditionRuntime.shopPhase = "scan support"
-            local buy = (item.Name == "ExpeditionStatAnvil" and ExpeditionAuto.buyAnvil)
-                or (item.Name == "ExpeditionRepair" and ExpeditionAuto.buyRepair and item.Data and state.health and state.maxHealth and state.maxHealth - state.health >= (tonumber(item.Data.Health) or math.huge))
-            if buy and (item.Stock == nil or item.Stock > 0) and yen >= (tonumber(item.Price) or math.huge) then
+            local buy = item.Name == "ExpeditionStatAnvil"
+            if buy and yen >= (tonumber(item.Price) or math.huge) then
                 expeditionRuntime.shopPhase = "purchase support"
                 local ok, err = pcall(function() replica:FireServer("PurchaseItem", shopKey, index, 1) end)
                 if not ok then warn("[EXP AUTO] Support purchase request failed: " .. tostring(err)); return end
+                expeditionRuntime.pendingAnvilPurchaseAt = tick()
                 print("[EXP AUTO] Purchase requested: " .. item.Name)
                 expeditionRuntime.lastBuy = tick()
                 expeditionRuntime.lastShopAction = tick()
@@ -3256,19 +3467,7 @@ local function expeditionTryShop()
 end
 local function expeditionTryItems()
     if tick() - expeditionRuntime.lastUse < 2 then return end
-    local cardPopupOpen = false
-    local prompt = LocalPlayer.PlayerGui:FindFirstChild("Prompt")
-    if prompt then
-        for _, object in ipairs(prompt:GetDescendants()) do
-            if object:IsA("TextButton") and object.Visible then
-                local textLabel = object:FindFirstChildWhichIsA("TextLabel", true)
-                if textLabel and textLabel.Text == "Select Upgrade" then
-                    cardPopupOpen = true
-                    break
-                end
-            end
-        end
-    end
+    local cardPopupOpen = #expeditionUpgradeButtons() > 0
     if cardPopupOpen then
         if tick() - (expeditionRuntime.lastItemWaitLog or 0) >= 5 then
             expeditionRuntime.lastItemWaitLog = tick()
@@ -3276,12 +3475,10 @@ local function expeditionTryItems()
         end
         return
     end
-    local queuedKind = expeditionRuntime.tomeQueue[1]
-    local item = expeditionHotbarItem("ExpeditionTome")
+    local item, target, kind = expeditionTomeWithTarget()
     if ExpeditionAuto.autoUseTome and item then
         local trait = item.data and item.data.Trait
         local isUnbound = trait == "Unbound"
-        local target, kind = expeditionTomeTarget(item, queuedKind)
         if target and target.gameUnitId then
             print("[EXP AUTO] Tome request: trait=" .. tostring(item and item.data and item.data.Trait) .. " slot=" .. tostring(item and item.slot) .. " target=" .. tostring(target.asset) .. " gameUnitId=" .. tostring(target.gameUnitId))
             local ok, sent, err = pcall(expeditionUseHotbarItem, item, target.gameUnitId)
@@ -3292,17 +3489,41 @@ local function expeditionTryItems()
                     local gameUnits = expeditionPeek(Dependencies.GameUnits)
                     local placedData = target.id and gameUnits and expeditionPeek(gameUnits[target.id])
                     local unitData = placedData and (expeditionPeek(placedData.UnitData) or placedData.UnitData)
+                    if isUnbound then expeditionRuntime.unboundTargets[target.gameUnitId] = unitData and unitData.Trait == "Unbound" or nil end
                     print("[EXP AUTO] Tome verify: hotbarPresent=" .. tostring(stillOwned) .. " target=" .. tostring(target.asset) .. " trait=" .. tostring(unitData and unitData.Trait))
                 end)
             else
                 warn("[EXP AUTO] Tome use failed: " .. tostring(sent or err))
             end
-            if queuedKind then table.remove(expeditionRuntime.tomeQueue, 1) end
+            if ok and sent and #expeditionRuntime.tomeQueue > 0 then table.remove(expeditionRuntime.tomeQueue, 1) end
             expeditionRuntime.lastUse = tick()
             return
         end
     end
-    if ExpeditionAuto.autoUseAnvil and expeditionOwnsItem("ExpeditionStatAnvil") then
+    if ExpeditionAuto.autoUseTome and not item then
+        local heldTomes = expeditionHotbarItems("ExpeditionTome")
+        if #heldTomes > 0 and tick() - (expeditionRuntime.lastTomeTargetLog or 0) >= 5 then
+            expeditionRuntime.lastTomeTargetLog = tick()
+            local labels = {}
+            for _, held in ipairs(heldTomes) do
+                local trait = held.data and held.data.Trait
+                local kind = expeditionConfiguredTomeKind(trait) or "FreeDamage"
+                table.insert(labels, "slot=" .. tostring(held.slot) .. " trait=" .. tostring(trait) .. " kind=" .. kind)
+            end
+            print("[EXP TOME] Held but no traitless target: " .. table.concat(labels, " | "))
+        end
+    end
+    local state = expeditionState()
+    if expeditionRepairConfigured() and state and state.health and state.maxHealth and state.health < state.maxHealth then
+        local repair = expeditionHotbarItem("ExpeditionRepair")
+        if repair then
+            require(FusionPackage.Shared).SelectedHotbarIndex:set(repair.slot)
+            print("[EXP AUTO] Repair selected from hotbar slot " .. tostring(repair.slot) .. " at " .. tostring(state.health) .. "/" .. tostring(state.maxHealth) .. " HP")
+            expeditionRuntime.lastUse = tick()
+            return
+        end
+    end
+    if expeditionAnvilConfigured() and expeditionOwnsItem("ExpeditionStatAnvil") then
         local item = expeditionHotbarItem("ExpeditionStatAnvil")
         if not item then return end
         require(FusionPackage.Shared).SelectedHotbarIndex:set(item.slot)
@@ -3359,41 +3580,89 @@ local function expeditionTryOrbs()
     end
 end
 local function expeditionTryContinue()
-    if not ExpeditionAuto.autoContinue or tick() - expeditionRuntime.lastContinue < ExpeditionAuto.continueDelay + 3 then return end
-    if isPlaying or getgenv().ExpeditionContinueBlocked then return end
+    if not ExpeditionAuto.autoContinue then expeditionRuntime.continueScheduledAt = nil; expeditionRuntime.continueWatchdog = nil; return end
+    local now = tick()
     local state = expeditionState()
-    if not state or state.status ~= "Checkpoint" or state.current ~= "InProgress" then return end
-    if ExpeditionAuto.autoShop and (expeditionRuntime.lastShopScan == 0 or tick() - expeditionRuntime.lastShopAction < 2) then return end
-    if #expeditionRuntime.tomeQueue > 0 then return end
-    local tomeItem = expeditionHotbarItem("ExpeditionTome")
-    if ExpeditionAuto.autoUseTome and tomeItem then
-        local trait = tomeItem.data and tomeItem.data.Trait
-        local blocksContinue = trait == "Unbound" and expeditionTomeTarget(tomeItem)
-            or (expeditionTraitSelected(ExpeditionAuto.damageTraits, trait) and expeditionPlacedTarget("Damage", {traitless = true}))
-            or (trait == "Investor" and expeditionPlacedTarget("Farm", {traitless = true}))
-        if blocksContinue then return end
+    if not state then return end
+    local stateSignature = table.concat({tostring(state.current), tostring(state.status), tostring(state.wave), tostring(state.increment), tostring(state.enemyCount), tostring(state.active)}, "|")
+    if expeditionRuntime.continueWatchdog then
+        local watchdog = expeditionRuntime.continueWatchdog
+        local progressed = (state.enemyCount > watchdog.enemyCount and state.enemyCount > 0)
+            or state.current ~= watchdog.current or state.status ~= watchdog.status
+            or state.wave ~= watchdog.wave or state.increment ~= watchdog.increment
+        if now - watchdog.sentAt >= 30 and not progressed then
+            local replica = expeditionGameReplica()
+            print("[EXP CONTINUE] No progress for 30s; returning Lobby")
+            if replica then pcall(function() replica:FireServer("Lobby") end) end
+            expeditionRuntime.continueWatchdog = nil
+            expeditionRuntime.lastContinue = now
+        elseif progressed then
+            print("[EXP CONTINUE] Watchdog: progress detected " .. stateSignature)
+            expeditionRuntime.continueWatchdog = nil
+        elseif stateSignature ~= expeditionRuntime.lastContinueState then
+            expeditionRuntime.lastContinueState = stateSignature
+            print("[EXP CONTINUE] Watchdog: " .. stateSignature)
+        end
+        return
     end
-    if ExpeditionAuto.autoUseAnvil and expeditionHotbarItem("ExpeditionStatAnvil") then return end
-    local prompt = LocalPlayer.PlayerGui:FindFirstChild("Prompt")
-    if prompt then
-        for _, object in ipairs(prompt:GetDescendants()) do
-            if object:IsA("TextButton") and object.Visible then
-                local label = object:FindFirstChildWhichIsA("TextLabel", true)
-                if label and label.Text == "Select Upgrade" then return end
-            end
+    local blocker
+    if isPlaying then blocker = "Macro đang chạy"
+    elseif getgenv().ExpeditionContinueBlocked then blocker = "đang chờ Macro Expedition"
+    elseif state.status ~= "Checkpoint" or state.current ~= "InProgress" then blocker = "state=" .. state.current .. "/" .. state.status
+    elseif ExpeditionAuto.autoShop and expeditionRuntime.lastShopScan == 0 then blocker = "Shop chưa scan"
+    elseif ExpeditionAuto.autoShop and now - expeditionRuntime.lastShopAction < 2 then blocker = "Shop vừa mua/refresh"
+    elseif ExpeditionAuto.autoShop and expeditionRepairConfigured() and expeditionRuntime.pendingRepairCount then blocker = "đang xác nhận mua Búa"
+    elseif ExpeditionAuto.autoShop and expeditionRepairConfigured() and expeditionHotbarItemCount("ExpeditionRepair") < 2 and expeditionRuntime.repairPurchaseAvailable then blocker = "Búa sửa dưới 2" end
+    if not blocker and expeditionRepairConfigured() and state.health and state.maxHealth and state.health < state.maxHealth and expeditionHotbarItem("ExpeditionRepair") then
+        blocker = "Payload chưa sửa"
+    end
+    if not blocker and ExpeditionAuto.autoUseTome then
+        local tomeItem, tomeTarget = expeditionTomeWithTarget()
+        if tomeItem and tomeTarget then blocker = "Sách Trait còn target hợp lệ" end
+    end
+    if not blocker and expeditionAnvilConfigured() and expeditionHotbarItem("ExpeditionStatAnvil") then blocker = "Đe chưa dùng" end
+    if not blocker and ExpeditionAuto.autoCards and expeditionRuntime.cardPending then blocker = "đang xác nhận Card" end
+    local upgradeButtons, prompt = expeditionUpgradeButtons()
+    if not blocker and ExpeditionAuto.autoCards and #upgradeButtons > 0 then
+        local statAnvilPopup = expeditionIsStatAnvilPrompt(prompt)
+        if not statAnvilPopup or expeditionAnvilConfigured() then blocker = "Card đang mở" end
+    end
+    if not blocker and ExpeditionAuto.autoUseTome then
+        for _, object in ipairs(LocalPlayer.PlayerGui:GetDescendants()) do
+            if object:IsA("TextLabel") and object.Visible and object.Text:match("^Apply .- Tome$") then blocker = "đang chọn target Tome" break end
         end
     end
-    for _, object in ipairs(LocalPlayer.PlayerGui:GetDescendants()) do
-        if object:IsA("TextLabel") and object.Visible and object.Text:match("^Apply .- Tome$") then return end
-    end
-    expeditionRuntime.lastContinue = tick()
-    task.delay(ExpeditionAuto.continueDelay, function()
-        local latest = expeditionState()
-        if expeditionAutomationActive() and not isPlaying and latest and latest.status == "Checkpoint" then
-            local ok, err = pcall(function() Actions.Expedition_Continue() end)
-            if ok then print("[EXP AUTO] Continue Expedition") else warn("[EXP AUTO] Continue failed: " .. tostring(err)) end
+    if blocker then
+        expeditionRuntime.continueScheduledAt = nil
+        if expeditionRuntime.lastContinueBlock ~= blocker then
+            expeditionRuntime.lastContinueBlock = blocker
+            print("[EXP CONTINUE] Blocked by: " .. blocker)
         end
-    end)
+        return
+    end
+    expeditionRuntime.lastContinueBlock = ""
+    if now - expeditionRuntime.lastContinue < ExpeditionAuto.continueDelay + 3 then return end
+    if not expeditionRuntime.continueScheduledAt then
+        expeditionRuntime.continueScheduledAt = now
+        expeditionRuntime.continueScheduledState = stateSignature
+        print("[EXP CONTINUE] Ready; waiting " .. tostring(ExpeditionAuto.continueDelay) .. "s")
+        return
+    end
+    if expeditionRuntime.continueScheduledState ~= stateSignature then
+        expeditionRuntime.continueScheduledAt = nil
+        print("[EXP CONTINUE] Scheduled request cancelled: state changed")
+        return
+    end
+    if now - expeditionRuntime.continueScheduledAt < ExpeditionAuto.continueDelay then return end
+    local replica = expeditionGameReplica()
+    if not replica then warn("[EXP CONTINUE] Request failed: GameState replica missing"); expeditionRuntime.continueScheduledAt = nil; return end
+    local ok, err = pcall(function() replica:FireServer("Continue") end)
+    expeditionRuntime.continueScheduledAt = nil
+    expeditionRuntime.lastContinue = now
+    if not ok then warn("[EXP CONTINUE] Request failed: " .. tostring(err)); return end
+    expeditionRuntime.continueWatchdog = {sentAt = now, current = state.current, status = state.status, wave = state.wave, increment = state.increment, enemyCount = state.enemyCount}
+    expeditionRuntime.lastContinueState = stateSignature
+    print("[EXP CONTINUE] Request sent via GameState " .. tostring(replica.Id) .. ": " .. stateSignature)
 end
 
 local helperEvoOptions, traitOptions, upgradeOptions, statOptions = {""}, {}, {}, {}
@@ -3438,7 +3707,7 @@ Tabs.Macro:AddDropdown("ExpeditionAutoCardFallback", {Title = "Chọn dự phòn
 Tabs.Macro:AddSection("Tự Chọn Đe")
 Tabs.Macro:AddParagraph({Title = "Ưu Tiên Chỉ Số Đe", Content = "Tự chọn chỉ số Đe đầu tiên có trong danh sách ưu tiên."})
 Tabs.Macro:AddDropdown("ExpeditionAutoStats", {Title = "Chọn chỉ số Đe", Values = statOptions, Multi = true, Default = ExpeditionAuto.statPriority}):OnChanged(function(value) ExpeditionAuto.statPriority = expeditionListFromDropdown(value); saveConfig() end)
-Tabs.Macro:AddToggle("ExpeditionAutoAnvil", {Title = "Tự mua / dùng Đe", Default = ExpeditionAuto.buyAnvil}):OnChanged(function(value) ExpeditionAuto.buyAnvil = value; ExpeditionAuto.autoUseAnvil = value; saveConfig() end)
+Tabs.Macro:AddToggle("ExpeditionAutoAnvil", {Title = "Tự mua / dùng Đe", Default = ExpeditionAuto.buyAnvil and ExpeditionAuto.autoUseAnvil}):OnChanged(function(value) ExpeditionAuto.buyAnvil = value; ExpeditionAuto.autoUseAnvil = value; saveConfig() end)
 Tabs.Macro:AddSection("Cửa Hàng Checkpoint")
 Tabs.Macro:AddParagraph({Title = "Trait Sách Cần Mua", Content = "Chỉ mua Sách có Trait phù hợp với danh sách đã chọn và Unit tương ứng đã được đặt."})
 Tabs.Macro:AddDropdown("ExpeditionAutoDamageTraits", {Title = "Damage Unit Tome Traits", Values = traitOptions, Multi = true, Default = expeditionListFromDropdown(ExpeditionAuto.damageTraits)}):OnChanged(function(value) ExpeditionAuto.damageTraits = expeditionSetFromDropdown(value); saveConfig(); refreshExpeditionTomeTraitSummary(); print("[EXP AUTO] Saved damage traits: " .. table.concat(expeditionListFromDropdown(ExpeditionAuto.damageTraits), ", ")) end)
@@ -3451,8 +3720,8 @@ end
 Tabs.Macro:AddDropdown("ExpeditionAutoFarmTraits", {Title = "Trait Unit Farm", Values = traitOptions, Multi = true, Default = expeditionListFromDropdown(ExpeditionAuto.farmTraits), Callback = saveFarmTraits}):OnChanged(saveFarmTraits)
 tomeTraitParagraph = Tabs.Macro:AddParagraph({Title = "Trait Đang Chọn", Content = expeditionTomeTraitSummary()})
 Tabs.Macro:AddToggle("ExpeditionAutoShop", {Title = "Tự mua Shop Checkpoint", Default = ExpeditionAuto.autoShop}):OnChanged(function(value) ExpeditionAuto.autoShop = value; saveConfig() end)
-Tabs.Macro:AddToggle("ExpeditionAutoTome", {Title = "Tự mua / dùng Sách Trait", Default = ExpeditionAuto.buyTome}):OnChanged(function(value) ExpeditionAuto.buyTome = value; ExpeditionAuto.autoUseTome = value; saveConfig() end)
-Tabs.Macro:AddToggle("ExpeditionAutoRepair", {Title = "Tự sửa Payload", Default = ExpeditionAuto.buyRepair}):OnChanged(function(value) ExpeditionAuto.buyRepair = value; saveConfig() end)
+Tabs.Macro:AddToggle("ExpeditionAutoTome", {Title = "Tự mua / dùng Sách Trait", Default = ExpeditionAuto.buyTome and ExpeditionAuto.autoUseTome}):OnChanged(function(value) ExpeditionAuto.buyTome = value; ExpeditionAuto.autoUseTome = value; saveConfig() end)
+Tabs.Macro:AddToggle("ExpeditionAutoRepair", {Title = "Tự mua Búa / sửa Payload", Default = ExpeditionAuto.buyRepair and ExpeditionAuto.autoUseRepair}):OnChanged(function(value) ExpeditionAuto.buyRepair = value; ExpeditionAuto.autoUseRepair = value; saveConfig() end)
 Tabs.Macro:AddToggle("ExpeditionAutoOrbs", {Title = "Tự nhặt Orb", Default = ExpeditionAuto.autoOrbs}):OnChanged(function(value) ExpeditionAuto.autoOrbs = value; saveConfig() end)
 Tabs.Macro:AddInput("ExpeditionAutoOrbScanDelay", {Title = "Orb Scan Delay (seconds)", Default = tostring(ExpeditionAuto.orbScanDelay), Numeric = true, Finished = true, Callback = function(value) ExpeditionAuto.orbScanDelay = math.max(5, tonumber(value) or 10); saveConfig() end})
 Tabs.Macro:AddToggle("ExpeditionAutoContinue", {Title = "Tự tiếp tục", Default = ExpeditionAuto.autoContinue}):OnChanged(function(value) ExpeditionAuto.autoContinue = value; saveConfig() end)
