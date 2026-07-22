@@ -2341,7 +2341,7 @@ task.spawn(function()
                                     playStart = tick() - action.time
                                 end
 
-                                local macroActionDelay = math.max(0.1, tonumber(ExpeditionAuto.macroActionDelay) or 3)
+                                local macroActionDelay = math.max(0.1, tonumber((appConfig.ExpeditionAuto or {}).macroActionDelay) or 3)
                                 local scheduledTime = stateInfo.Gamemode == "Expedition" and (i * macroActionDelay) or action.time
                                 while (tick() - playStart) < scheduledTime do
                                     task.wait(0.01)
