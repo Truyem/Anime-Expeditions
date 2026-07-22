@@ -2341,7 +2341,8 @@ task.spawn(function()
                                     playStart = tick() - action.time
                                 end
 
-                                while (tick() - playStart) < action.time do
+                                local scheduledTime = stateInfo.Gamemode == "Expedition" and (i * ExpeditionAuto.macroActionDelay) or action.time
+                                while (tick() - playStart) < scheduledTime do
                                     task.wait(0.01)
                                     if not isPlaying or not appConfig.autoPlayEnabled then break end
                                 end
@@ -2759,6 +2760,7 @@ local ExpeditionAutoDefaults = {
     statPriority = {"Damage", "Range", "SPA"},
     autoContinue = true,
     continueDelay = 3,
+    macroActionDelay = 3,
     autoOrbs = true,
     orbScanDelay = 10,
 }
@@ -3457,6 +3459,7 @@ Tabs.Macro:AddToggle("ExpeditionAutoOrbs", {Title = "Tự nhặt Orb", Default =
 Tabs.Macro:AddInput("ExpeditionAutoOrbScanDelay", {Title = "Orb Scan Delay (seconds)", Default = tostring(ExpeditionAuto.orbScanDelay), Numeric = true, Finished = true, Callback = function(value) ExpeditionAuto.orbScanDelay = math.max(5, tonumber(value) or 10); saveConfig() end})
 Tabs.Macro:AddToggle("ExpeditionAutoContinue", {Title = "Tự tiếp tục", Default = ExpeditionAuto.autoContinue}):OnChanged(function(value) ExpeditionAuto.autoContinue = value; saveConfig() end)
 Tabs.Macro:AddInput("ExpeditionAutoContinueDelay", {Title = "Thời gian chờ tiếp tục", Default = tostring(ExpeditionAuto.continueDelay), Numeric = true, Finished = true, Callback = function(value) ExpeditionAuto.continueDelay = math.max(0, tonumber(value) or 3); saveConfig() end})
+Tabs.Macro:AddInput("ExpeditionMacroActionDelay", {Title = "Khoảng cách hành động Macro (giây)", Default = tostring(ExpeditionAuto.macroActionDelay), Numeric = true, Finished = true, Callback = function(value) ExpeditionAuto.macroActionDelay = math.max(0.1, tonumber(value) or 3); saveConfig() end})
 Tabs.Macro:AddSection("Vị Trí Helper Expedition")
 Tabs.Macro:AddToggle("ExpeditionAutoHire", {Title = "Tự thuê Helper EVO", Default = ExpeditionAuto.autoHire}):OnChanged(function(value) ExpeditionAuto.autoHire = value; saveConfig() end)
 for index = 1, 10 do
