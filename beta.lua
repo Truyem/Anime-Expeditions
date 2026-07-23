@@ -3514,7 +3514,7 @@ local function expeditionTryItems()
         end
     end
     local state = expeditionState()
-    if expeditionRepairConfigured() and state and state.health and state.maxHealth and state.health < state.maxHealth then
+    if expeditionRepairConfigured() and state and state.status ~= "Checkpoint" and state.health and state.maxHealth and state.health < state.maxHealth then
         local repair = expeditionHotbarItem("ExpeditionRepair")
         if repair then
             require(FusionPackage.Shared).SelectedHotbarIndex:set(repair.slot)
@@ -3584,6 +3584,44 @@ local function expeditionTryContinue()
     local now = tick()
     local state = expeditionState()
     if not state then return end
+    if state.status == "Checkpoint" and state.current == "InProgress" then
+        local checkpointKey = tostring(state.increment) .. ":" .. tostring(state.status)
+        if expeditionRuntime.checkpointKey ~= checkpointKey
+            or not expeditionRuntime.checkpointLastObserved
+            or now - expeditionRuntime.checkpointLastObserved > 1.5 then
+            expeditionRuntime.checkpointKey = checkpointKey
+            expeditionRuntime.checkpointEnteredAt = now
+            expeditionRuntime.checkpointForceSent = false
+        end
+        expeditionRuntime.checkpointLastObserved = now
+    else
+        expeditionRuntime.checkpointKey = nil
+        expeditionRuntime.checkpointEnteredAt = nil
+        expeditionRuntime.checkpointLastObserved = nil
+        expeditionRuntime.checkpointForceSent = false
+    end
+    if appConfig.autoPlayEnabled and state.status == "Checkpoint" and state.current == "InProgress"
+        and expeditionRuntime.checkpointEnteredAt and tick() - expeditionRuntime.checkpointEnteredAt >= 20
+        and not expeditionRuntime.checkpointForceSent then
+        local replica = expeditionGameReplica()
+        expeditionRuntime.checkpointForceSent = true
+        expeditionRuntime.continueScheduledAt = nil
+        expeditionRuntime.continueWatchdog = nil
+        expeditionRuntime.lastContinue = tick()
+        if replica then
+            local ok, err = pcall(function() replica:FireServer("Continue") end)
+            if ok then
+                print("[EXP CONTINUE] Forced after 20s at Checkpoint")
+            else
+                expeditionRuntime.checkpointForceSent = false
+                warn("[EXP CONTINUE] Forced request failed: " .. tostring(err))
+            end
+        else
+            expeditionRuntime.checkpointForceSent = false
+            warn("[EXP CONTINUE] Forced request failed: GameState replica missing")
+        end
+        return
+    end
     local stateSignature = table.concat({tostring(state.current), tostring(state.status), tostring(state.wave), tostring(state.increment), tostring(state.enemyCount), tostring(state.active)}, "|")
     if expeditionRuntime.continueWatchdog then
         local watchdog = expeditionRuntime.continueWatchdog
@@ -3613,9 +3651,6 @@ local function expeditionTryContinue()
     elseif ExpeditionAuto.autoShop and now - expeditionRuntime.lastShopAction < 2 then blocker = "Shop vừa mua/refresh"
     elseif ExpeditionAuto.autoShop and expeditionRepairConfigured() and expeditionRuntime.pendingRepairCount then blocker = "đang xác nhận mua Búa"
     elseif ExpeditionAuto.autoShop and expeditionRepairConfigured() and expeditionHotbarItemCount("ExpeditionRepair") < 2 and expeditionRuntime.repairPurchaseAvailable then blocker = "Búa sửa dưới 2" end
-    if not blocker and expeditionRepairConfigured() and state.health and state.maxHealth and state.health < state.maxHealth and expeditionHotbarItem("ExpeditionRepair") then
-        blocker = "Payload chưa sửa"
-    end
     if not blocker and ExpeditionAuto.autoUseTome then
         local tomeItem, tomeTarget = expeditionTomeWithTarget()
         if tomeItem and tomeTarget then blocker = "Sách Trait còn target hợp lệ" end
