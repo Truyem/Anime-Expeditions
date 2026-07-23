@@ -2382,11 +2382,10 @@ task.spawn(function()
                                 elseif action.type == "Place" then 
                                     local pId = getCurrentMacroReplicaIds()
                                     if pId then
-                                        local placementAction = action.placementAction == "PlaceGamePhantom" and "PlaceGamePhantom" or "PlaceGameUnit"
-                                        Event:FireServer(pId, placementAction, action.slot, CFrame.new(unpack(action.pos)), action.quickPlacement)
-                                        print("[MACRO] " .. placementAction .. " slot " .. tostring(action.slot) .. " using GamePlayerData " .. tostring(pId))
+                                        Event:FireServer(pId, "PlaceGameUnit", action.slot, CFrame.new(unpack(action.pos)))
+                                        print("[MACRO] PlaceGameUnit slot " .. tostring(action.slot) .. " using GamePlayerData " .. tostring(pId))
                                     else
-                                        warn("[MACRO] Place skipped: GamePlayerData replica missing")
+                                        warn("[MACRO] PlaceGameUnit skipped: GamePlayerData replica missing")
                                     end
                                     local execTime = tick() - playStart
                                     -- print(string.format("[Macro Playback] Đặt lính (Slot %d) lúc %.2fs | Gốc: %.2fs | Trễ: %.2fs | Wave: %s", action.slot, execTime, action.time, execTime - action.time, tostring(lastStateInfo and lastStateInfo.Wave or 0)))
@@ -2646,26 +2645,13 @@ installMacroHook = function()
                 table.insert(mList, {time = currentTime, type = "Select", slot = args[3], wave = curWave})
             elseif action == "PlaceGameUnit" or action == "PlaceGamePhantom" then
                 local pArg
-                local quickPlacement
                 for i = 3, #args do
-                    if not pArg and (typeof(args[i]) == "CFrame" or typeof(args[i]) == "Vector3") then
-                        pArg = args[i]
-                    elseif type(args[i]) == "boolean" then
-                        quickPlacement = args[i]
-                    end
+                    if typeof(args[i]) == "CFrame" or typeof(args[i]) == "Vector3" then pArg = args[i]; break end
                 end
                 if pArg then
                     local p = typeof(pArg) == "CFrame" and {pArg:components()} or {pArg.X, pArg.Y, pArg.Z}
                     local curWave = lastStateInfo and lastStateInfo.Wave or 0
-                    table.insert(mList, {
-                        time = currentTime,
-                        type = "Place",
-                        placementAction = action == "PlaceGamePhantom" and action or nil,
-                        slot = args[3],
-                        pos = p,
-                        wave = curWave,
-                        quickPlacement = quickPlacement,
-                    })
+                    table.insert(mList, {time = currentTime, type = "Place", slot = args[3], pos = p, wave = curWave})
                 end
             elseif action == "VoteStart" or (action == "Response" and type(args[3]) == "boolean") then
                 local curWave = lastStateInfo and lastStateInfo.Wave or 0
