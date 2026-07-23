@@ -260,6 +260,30 @@ getgenv().KickBlockStatus = function()
     }
 end
 log("loaded. Use getgenv().ErrorCheckSafe(label, fn) and getgenv().KickBlockStatus()")
+-- Synthetic mouse input can switch Roblox's preferred input on phones. Keep only
+-- the preferred-input read in Touch mode; desktop clients are left untouched.
+do
+    local inputService = game:GetService("UserInputService")
+    local mobileInputState = getgenv().AnimeExpeditionsMobileInput or {}
+    getgenv().AnimeExpeditionsMobileInput = mobileInputState
+    if inputService.TouchEnabled and not mobileInputState.hooked
+        and type(hookmetamethod) == "function" and type(newcclosure) == "function" then
+        local oldIndex
+        oldIndex = hookmetamethod(game, "__index", newcclosure(function(self, key)
+            if self == inputService and key == "PreferredInput"
+                and (type(checkcaller) ~= "function" or not checkcaller()) then
+                return Enum.PreferredInput.Touch
+            end
+            return oldIndex(self, key)
+        end))
+        mobileInputState.hooked = true
+        if type(getconnections) == "function" then
+            for _, connection in ipairs(getconnections(inputService:GetPropertyChangedSignal("PreferredInput"))) do
+                pcall(function() connection:Fire() end)
+            end
+        end
+    end
+end
 _G.ShotgunBlacklist = _G.ShotgunBlacklist or {}
 if not _G.ReplicaInterceptorActive then
     _G.ReplicaInterceptorActive = true
@@ -3586,7 +3610,15 @@ local function expeditionTryContinue()
     if not state then return end
     if state.status == "Checkpoint" and state.current == "InProgress" then
         local checkpointKey = tostring(state.increment) .. ":" .. tostring(state.status)
-        if expeditionRuntime.checkpointKey ~= checkpointKey
+        local newCheckpoint = expeditionRuntime.checkpointKey ~= checkpointKey
+        if newCheckpoint then
+            if tonumber(state.increment) and tonumber(state.increment) <= 1 then
+                expeditionRuntime.checkpointOrdinal = 1
+            else
+                expeditionRuntime.checkpointOrdinal = (expeditionRuntime.checkpointOrdinal or 0) + 1
+            end
+        end
+        if newCheckpoint
             or not expeditionRuntime.checkpointLastObserved
             or now - expeditionRuntime.checkpointLastObserved > 1.5 then
             expeditionRuntime.checkpointKey = checkpointKey
@@ -3601,6 +3633,7 @@ local function expeditionTryContinue()
         expeditionRuntime.checkpointForceSent = false
     end
     if appConfig.autoPlayEnabled and state.status == "Checkpoint" and state.current == "InProgress"
+        and (expeditionRuntime.checkpointOrdinal or 0) >= 2
         and expeditionRuntime.checkpointEnteredAt and tick() - expeditionRuntime.checkpointEnteredAt >= 20
         and not expeditionRuntime.checkpointForceSent then
         local replica = expeditionGameReplica()
@@ -3611,7 +3644,7 @@ local function expeditionTryContinue()
         if replica then
             local ok, err = pcall(function() replica:FireServer("Continue") end)
             if ok then
-                print("[EXP CONTINUE] Forced after 20s at Checkpoint")
+                print("[EXP CONTINUE] Forced after 20s at Checkpoint #" .. tostring(expeditionRuntime.checkpointOrdinal))
             else
                 expeditionRuntime.checkpointForceSent = false
                 warn("[EXP CONTINUE] Forced request failed: " .. tostring(err))
