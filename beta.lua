@@ -351,11 +351,18 @@ local appConfig = {
 }
 local playerID = tostring(game.Players.LocalPlayer.UserId)
 local folderName = "AnimeExpeditions_" .. playerID
-local lobbyConfigPath = folderName .. "/lobby.json"
-local ingameConfigPath = folderName .. "/ingame.json"
+local SaveManager
+local autoSaveProfileRevision = 0
+local autoSaveFolderPath = folderName .. "/AutoSave"
+local autoSaveConfigPath = autoSaveFolderPath .. "/autosave.json"
+local splitLobbyConfigPath = autoSaveFolderPath .. "/lobby.json"
+local splitIngameConfigPath = autoSaveFolderPath .. "/ingame.json"
+local legacyLobbyConfigPath = folderName .. "/lobby.json"
+local legacyIngameConfigPath = folderName .. "/ingame.json"
 local macrosFolderPath = folderName .. "/macros"
 if makefolder then
     if not isfolder(folderName) then makefolder(folderName) end
+    if not isfolder(autoSaveFolderPath) then makefolder(autoSaveFolderPath) end
     if not isfolder(macrosFolderPath) then makefolder(macrosFolderPath) end
 end
 local lobbyConfigKeys = {
@@ -369,19 +376,32 @@ local ingameConfigKeys = {
 local function loadConfig()
     if not isfile then return end
     local savedMacroBackup = nil
-    if isfile(lobbyConfigPath) then
-        local ok, decoded = pcall(function() return HttpService:JSONDecode(readfile(lobbyConfigPath)) end)
+    if isfile(autoSaveConfigPath) then
+        local ok, decoded = pcall(function() return HttpService:JSONDecode(readfile(autoSaveConfigPath)) end)
         if ok and type(decoded) == "table" then
-            for k, v in pairs(decoded) do appConfig[k] = v end
+            local lobbyData = type(decoded.lobby) == "table" and decoded.lobby or {}
+            local ingameData = type(decoded.ingame) == "table" and decoded.ingame or {}
+            for k, v in pairs(lobbyData) do appConfig[k] = v end
+            for k, v in pairs(ingameData) do appConfig[k] = v end
+            if type(ingameData.Macros) == "table" then savedMacroBackup = ingameData.Macros end
         end
-    end
-    if isfile(ingameConfigPath) then
-        local ok, decoded = pcall(function() return HttpService:JSONDecode(readfile(ingameConfigPath)) end)
-        if ok and type(decoded) == "table" then
-            for k, v in pairs(decoded) do appConfig[k] = v end
-            if type(decoded.Macros) == "table" then
-                savedMacroBackup = decoded.Macros
+    else
+        local lobbyLoadPath = isfile(splitLobbyConfigPath) and splitLobbyConfigPath or legacyLobbyConfigPath
+        local ingameLoadPath = isfile(splitIngameConfigPath) and splitIngameConfigPath or legacyIngameConfigPath
+        if isfile(lobbyLoadPath) then
+            local ok, decoded = pcall(function() return HttpService:JSONDecode(readfile(lobbyLoadPath)) end)
+            if ok and type(decoded) == "table" then
+                for k, v in pairs(decoded) do appConfig[k] = v end
             end
+            getgenv().AnimeExpeditionsMigrateAutoSave = true
+        end
+        if isfile(ingameLoadPath) then
+            local ok, decoded = pcall(function() return HttpService:JSONDecode(readfile(ingameLoadPath)) end)
+            if ok and type(decoded) == "table" then
+                for k, v in pairs(decoded) do appConfig[k] = v end
+                if type(decoded.Macros) == "table" then savedMacroBackup = decoded.Macros end
+            end
+            getgenv().AnimeExpeditionsMigrateAutoSave = true
         end
     end
     appConfig.Macros = {}
@@ -417,9 +437,8 @@ local function saveConfig()
     for _, k in ipairs(lobbyConfigKeys) do lobbyData[k] = appConfig[k] end
     local ingameData = {}
     for _, k in ipairs(ingameConfigKeys) do ingameData[k] = appConfig[k] end
-        pcall(function()
-        writefile(lobbyConfigPath, HttpService:JSONEncode(lobbyData))
-        writefile(ingameConfigPath, HttpService:JSONEncode(ingameData))
+    pcall(function()
+        writefile(autoSaveConfigPath, HttpService:JSONEncode({lobby = lobbyData, ingame = ingameData}))
         for mapName, macroData in pairs(appConfig.Macros) do
             local safeName = mapName:gsub("[^%w%-_]", "")
             if safeName ~= "" then
@@ -427,12 +446,22 @@ local function saveConfig()
             end
         end
     end)
+    if SaveManager then
+        autoSaveProfileRevision = autoSaveProfileRevision + 1
+        local revision = autoSaveProfileRevision
+        task.delay(0.25, function()
+            if revision == autoSaveProfileRevision then
+                pcall(function() SaveManager:Save("Auto Save") end)
+            end
+        end)
+    end
 end
 logInit("Đang tải Config...")
 loadConfig()
-if getgenv().AnimeExpeditionsCleanLegacyIngameConfig then
+if getgenv().AnimeExpeditionsCleanLegacyIngameConfig or getgenv().AnimeExpeditionsMigrateAutoSave then
     saveConfig()
     getgenv().AnimeExpeditionsCleanLegacyIngameConfig = nil
+    getgenv().AnimeExpeditionsMigrateAutoSave = nil
 end
 appConfig.ShopSelections = appConfig.ShopSelections or {}
 appConfig.Macros = appConfig.Macros or {}
@@ -599,6 +628,15 @@ local function getExpeditionMapProgress()
     end
     return nil
 end
+local function isExpeditionCompleted(stateInfo)
+    if not stateInfo or stateInfo.Gamemode ~= "Expedition" then return false end
+    local status = tostring(stateInfo.Status or ""):lower()
+    if status == "finished" or status == "victory" or status == "completed" or status == "complete" then
+        return true
+    end
+    local current, total = getExpeditionMapProgress()
+    return status == "checkpoint" and current ~= nil and total ~= nil and total > 0 and current >= total
+end
 local function isExpeditionItemTargeting()
     local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
     if not playerGui then return false end
@@ -761,6 +799,24 @@ if not Fluent then
         Fluent = compile(res.Body)()
     end
 end
+local saveManagerPath = "AnimeExpeditions/FluentSaveManager.lua"
+if isfile and isfile(saveManagerPath) then
+    local ok, res = pcall(function() return compile(readfile(saveManagerPath))() end)
+    if ok and type(res) == "table" then SaveManager = res end
+end
+if not SaveManager then
+    local ok, res = pcall(function()
+        return request({
+            Url = "https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua",
+            Method = "GET",
+        })
+    end)
+    if ok and res and res.Body then
+        if writefile then pcall(function() writefile(saveManagerPath, res.Body) end) end
+        local loaded, manager = pcall(function() return compile(res.Body)() end)
+        if loaded and type(manager) == "table" then SaveManager = manager end
+    end
+end
 local Window = Fluent:CreateWindow({
     Title = "Anime Expeditions",
     SubTitle = "by Sigma",
@@ -790,7 +846,8 @@ local Tabs = {
     Join = Window:AddTab({ Title = "Auto Join Map", Icon = "map" }),
     Macro = Window:AddTab({ Title = "Macro In-Game", Icon = "play" }),
     Webhook = Window:AddTab({ Title = "Webhook", Icon = "message-circle" }),
-    Settings = Window:AddTab({ Title = "Settings", Icon = "settings" })
+    Settings = Window:AddTab({ Title = "Settings", Icon = "settings" }),
+    Configs = Window:AddTab({ Title = "Configs", Icon = "folder" })
 }
 task.wait()
 Tabs.Lobby:AddParagraph({ Title = "Thông Tin", Content = "Tự động nhận quà và nhiệm vụ ngầm." })
@@ -1188,7 +1245,6 @@ Tabs.Macro:AddButton({
     end
 })
 task.wait()
-Tabs.Settings:AddParagraph({ Title = "Tự Động Lưu (Auto Save)", Content = "Mọi thiết lập của bạn (Kể cả Unit, Map, Macro) đều được tự động lưu ngay lập tức!" })
 Tabs.Settings:AddToggle("HidePlayerNames", {Title = "Hide Player Names", Default = appConfig.hidePlayerNames}):OnChanged(function(v)
     appConfig.hidePlayerNames = v
     saveConfig()
@@ -2224,6 +2280,8 @@ task.spawn(function()
             local willBeEndMatch = false
             if stateInfo.CurrentGameState == "Finished" or stateInfo.CurrentGameState == "Victory" or stateInfo.CurrentGameState == "Defeat" then
                 willBeEndMatch = true
+            elseif isExpeditionCompleted(stateInfo) then
+                willBeEndMatch = true
             elseif stateInfo.Gamemode ~= "Expedition" and lastStateInfo and lastStateInfo.Wave > 0 and stateInfo.Wave == 0 then
                 willBeEndMatch = true
             end
@@ -2250,6 +2308,7 @@ task.spawn(function()
             end
             if getgenv().AutoPlayRestartGameIncrement ~= nil and stateInfo.GameIncrement ~= getgenv().AutoPlayRestartGameIncrement then
                 getgenv().AutoPlayRestartGameIncrement = nil
+                getgenv().IsManualRestart = false
                 isPlaying = false
                 lastHasRunMacro = false
                 print("[MACRO] Restart completed; macro playback unlocked for GameIncrement " .. tostring(stateInfo.GameIncrement))
@@ -2275,6 +2334,7 @@ task.spawn(function()
             if getgenv().PendingRecord and canBeginRecord then
                 getgenv().PendingRecord = false
                 getgenv().ExpeditionRecordGameIncrement = nil
+                getgenv().IsManualRestart = false
                 isRecording = true
                 currentStageKey = getCurrentStageKey(stateInfo, lastStateInfo)
                 appConfig.Macros[currentStageKey] = {}
@@ -2497,6 +2557,9 @@ task.spawn(function()
                 isEndMatch = true
                 resultStatus = stateInfo.BaseHealth > 0 and "Victory" or "Defeat"
                 if getgenv().WasAutoRestarted then resultStatus = "Victory"; getgenv().WasAutoRestarted = false end
+            elseif isExpeditionCompleted(stateInfo) then
+                isEndMatch = true
+                resultStatus = "Victory"
             end
             if not isEndMatch and stateInfo.Gamemode ~= "Expedition" and lastStateInfo and lastStateInfo.Wave > 0 and stateInfo.Wave == 0 then
                 isEndMatch = true
@@ -3608,6 +3671,17 @@ local function expeditionTryContinue()
     local now = tick()
     local state = expeditionState()
     if not state then return end
+    local mapProgress, mapTotal = getExpeditionMapProgress()
+    if mapProgress and mapTotal and mapTotal > 0 and mapProgress >= mapTotal then
+        expeditionRuntime.finalCheckpointObservedAt = expeditionRuntime.finalCheckpointObservedAt or now
+        if now - expeditionRuntime.finalCheckpointObservedAt < 7 then
+            expeditionRuntime.continueScheduledAt = nil
+            expeditionRuntime.continueWatchdog = nil
+            return
+        end
+    else
+        expeditionRuntime.finalCheckpointObservedAt = nil
+    end
     if state.status == "Checkpoint" and state.current == "InProgress" then
         local checkpointKey = tostring(state.increment) .. ":" .. tostring(state.status)
         local newCheckpoint = expeditionRuntime.checkpointKey ~= checkpointKey
@@ -3819,6 +3893,21 @@ for index = 1, 10 do
             saveConfig()
             getgenv().ExpeditionAutoRefreshHelperPositions()
         end,
+    })
+end
+
+if SaveManager then
+    SaveManager:SetLibrary(Fluent)
+    SaveManager:IgnoreThemeSettings()
+    SaveManager:SetIgnoreIndexes({"MacroDataString", "BlackScreen"})
+    SaveManager:SetFolder(folderName .. "/FluentConfigs")
+    SaveManager:Save("Auto Save")
+    SaveManager:BuildConfigSection(Tabs.Configs)
+    SaveManager:LoadAutoloadConfig()
+else
+    Tabs.Configs:AddParagraph({
+        Title = "Save Manager unavailable",
+        Content = "Không thể tải Fluent SaveManager. Hãy kiểm tra kết nối mạng rồi chạy lại script.",
     })
 end
 
