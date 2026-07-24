@@ -628,14 +628,34 @@ local function getExpeditionMapProgress()
     end
     return nil
 end
-local function isExpeditionCompleted(stateInfo)
-    if not stateInfo or stateInfo.Gamemode ~= "Expedition" then return false end
-    local status = tostring(stateInfo.Status or ""):lower()
-    if status == "finished" or status == "victory" or status == "completed" or status == "complete" then
-        return true
+local function getSessionMatchesPlayed()
+    local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+    if not playerGui then return nil end
+    for _, label in ipairs(playerGui:GetDescendants()) do
+        if label:IsA("TextLabel") and label.Visible and label.Text:lower():find("matches played", 1, true) then
+            local headingCenter = label.AbsolutePosition.X + label.AbsoluteSize.X / 2
+            local bestValue, bestScore
+            local root = label.Parent
+            for _ = 1, 2 do
+                if not root then break end
+                for _, candidate in ipairs(root:GetDescendants()) do
+                    if candidate:IsA("TextLabel") and candidate.Visible and candidate ~= label then
+                        local value = tonumber(candidate.Text:gsub(",", ""):match("^%s*(%d+)%s*$"))
+                        if value then
+                            local candidateCenter = candidate.AbsolutePosition.X + candidate.AbsoluteSize.X / 2
+                            local score = math.abs(candidateCenter - headingCenter)
+                            if not bestScore or score < bestScore then
+                                bestValue, bestScore = value, score
+                            end
+                        end
+                    end
+                end
+                if bestValue ~= nil then return bestValue end
+                root = root.Parent
+            end
+        end
     end
-    local current, total = getExpeditionMapProgress()
-    return status == "checkpoint" and current ~= nil and total ~= nil and total > 0 and current >= total
+    return nil
 end
 local function isExpeditionItemTargeting()
     local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
@@ -660,6 +680,7 @@ local function getGameStates()
     if ok and type(state) == "table" then
         local validPlayerState = (ok2 and type(playerState) == "table") and playerState or {}
         local params = safePeek(state.Parameters) or {}
+        local sessionStats = safePeek(state.SessionStats) or {}
         local gamemode = tostring(safePeek(params.Gamemode) or "")
         local mapName = tostring(safePeek(params.Map) or safePeek(params.MapName) or "")
         local actName = tostring(safePeek(params.Act) or safePeek(params.ActName) or "")
@@ -726,7 +747,8 @@ local function getGameStates()
             GameIncrement = tonumber(safePeek(state.GameIncrement)) or 0,
             GameTime = parseTime(safePeek(state.GameTime)) or parseTime(safePeek(state.SessionTime)) or parseTime(safePeek(state.Timer)) or 0,
             TotalKills = tonumber(safePeek(validPlayerState.TotalKills)) or tonumber(safePeek(validPlayerState.Kills)) or 0,
-            TotalDamage = tonumber(safePeek(validPlayerState.TotalDamage)) or tonumber(safePeek(validPlayerState.Damage)) or 0
+            TotalDamage = tonumber(safePeek(validPlayerState.TotalDamage)) or tonumber(safePeek(validPlayerState.Damage)) or 0,
+            SessionMatchesPlayed = tonumber(safePeek(sessionStats.MatchesPlayed)) or tonumber(safePeek(sessionStats.Matches))
         }
     end
     return nil
@@ -1500,6 +1522,9 @@ end
 getgenv().StartItemData = getgenv().StartItemData or snapshotItemData()
 getgenv().StartUnitData = getgenv().StartUnitData or snapshotUnitData()
 getgenv().StartEquipmentData = getgenv().StartEquipmentData or snapshotEquipmentData()
+local expeditionStageItemData = snapshotItemData()
+local expeditionStageUnitData = snapshotUnitData()
+local expeditionStageEquipmentData = snapshotEquipmentData()
 local itemsMeta = {
     ["Gem"] = {name = "Gem", id = 1526890712530948186},
     ["Gold"] = {name = "Gold", id = 1526890682130632735},
@@ -1834,10 +1859,23 @@ end
 local lastHasRunMacro = false
 local lastStateInfo = nil
 local lastSentTime = 0
+local lastSessionMatchesPlayed = nil
 task.spawn(function()
     while task.wait(1) do
         pcall(checkNewSummonedUnits)
         local stateInfo = getGameStates()
+        local matchesPlayedIncreased = false
+        local sessionMatchesPlayed = getSessionMatchesPlayed() or (stateInfo and stateInfo.SessionMatchesPlayed)
+        if sessionMatchesPlayed ~= nil then
+            if lastSessionMatchesPlayed == nil or sessionMatchesPlayed < lastSessionMatchesPlayed then
+                expeditionStageItemData = snapshotItemData()
+                expeditionStageUnitData = snapshotUnitData()
+                expeditionStageEquipmentData = snapshotEquipmentData()
+            else
+                matchesPlayedIncreased = sessionMatchesPlayed >= lastSessionMatchesPlayed + 1
+            end
+            lastSessionMatchesPlayed = sessionMatchesPlayed
+        end
         if appConfig.hidePlayerNames then
             pcall(function()
                 local pg = game.Players.LocalPlayer:FindFirstChild("PlayerGui")
@@ -2280,7 +2318,7 @@ task.spawn(function()
             local willBeEndMatch = false
             if stateInfo.CurrentGameState == "Finished" or stateInfo.CurrentGameState == "Victory" or stateInfo.CurrentGameState == "Defeat" then
                 willBeEndMatch = true
-            elseif isExpeditionCompleted(stateInfo) then
+            elseif stateInfo.Gamemode == "Expedition" and matchesPlayedIncreased then
                 willBeEndMatch = true
             elseif stateInfo.Gamemode ~= "Expedition" and lastStateInfo and lastStateInfo.Wave > 0 and stateInfo.Wave == 0 then
                 willBeEndMatch = true
@@ -2308,7 +2346,6 @@ task.spawn(function()
             end
             if getgenv().AutoPlayRestartGameIncrement ~= nil and stateInfo.GameIncrement ~= getgenv().AutoPlayRestartGameIncrement then
                 getgenv().AutoPlayRestartGameIncrement = nil
-                getgenv().IsManualRestart = false
                 isPlaying = false
                 lastHasRunMacro = false
                 print("[MACRO] Restart completed; macro playback unlocked for GameIncrement " .. tostring(stateInfo.GameIncrement))
@@ -2334,7 +2371,6 @@ task.spawn(function()
             if getgenv().PendingRecord and canBeginRecord then
                 getgenv().PendingRecord = false
                 getgenv().ExpeditionRecordGameIncrement = nil
-                getgenv().IsManualRestart = false
                 isRecording = true
                 currentStageKey = getCurrentStageKey(stateInfo, lastStateInfo)
                 appConfig.Macros[currentStageKey] = {}
@@ -2557,7 +2593,7 @@ task.spawn(function()
                 isEndMatch = true
                 resultStatus = stateInfo.BaseHealth > 0 and "Victory" or "Defeat"
                 if getgenv().WasAutoRestarted then resultStatus = "Victory"; getgenv().WasAutoRestarted = false end
-            elseif isExpeditionCompleted(stateInfo) then
+            elseif stateInfo.Gamemode == "Expedition" and matchesPlayedIncreased then
                 isEndMatch = true
                 resultStatus = "Victory"
             end
@@ -2585,12 +2621,14 @@ task.spawn(function()
                     end
                 end
             end
-            if isEndMatch and not wasManualRestart and appConfig.webhookWinEnabled and (tick() - lastSentTime > 15) then
+            if isEndMatch and (not wasManualRestart or matchesPlayedIncreased) and appConfig.webhookWinEnabled
+                and (matchesPlayedIncreased or tick() - lastSentTime > 15) then
                 lastSentTime = tick()
                 getgenv().HasRunMacroThisMatch = false
-                local capturedOldItemData = getgenv().StartItemData or {}
-                local capturedOldUnitData = getgenv().StartUnitData or {}
-                local capturedOldEquipmentData = getgenv().StartEquipmentData or {}
+                local isExpeditionStageReward = stateInfo.Gamemode == "Expedition" and matchesPlayedIncreased
+                local capturedOldItemData = isExpeditionStageReward and expeditionStageItemData or (getgenv().StartItemData or {})
+                local capturedOldUnitData = isExpeditionStageReward and expeditionStageUnitData or (getgenv().StartUnitData or {})
+                local capturedOldEquipmentData = isExpeditionStageReward and expeditionStageEquipmentData or (getgenv().StartEquipmentData or {})
                 local statsToUse = stateInfo
                 if stateInfo.Wave == 0 and lastStateInfo then
                     statsToUse = lastStateInfo
@@ -2608,6 +2646,11 @@ task.spawn(function()
                         getgenv().StartItemData = snapshotItemData()
                         getgenv().StartUnitData = snapshotUnitData()
                         getgenv().StartEquipmentData = snapshotEquipmentData()
+                        if isExpeditionStageReward then
+                            expeditionStageItemData = getgenv().StartItemData
+                            expeditionStageUnitData = getgenv().StartUnitData
+                            expeditionStageEquipmentData = getgenv().StartEquipmentData
+                        end
                     end)
                     if ok then
                         local gainedSomething = false
@@ -3671,17 +3714,6 @@ local function expeditionTryContinue()
     local now = tick()
     local state = expeditionState()
     if not state then return end
-    local mapProgress, mapTotal = getExpeditionMapProgress()
-    if mapProgress and mapTotal and mapTotal > 0 and mapProgress >= mapTotal then
-        expeditionRuntime.finalCheckpointObservedAt = expeditionRuntime.finalCheckpointObservedAt or now
-        if now - expeditionRuntime.finalCheckpointObservedAt < 7 then
-            expeditionRuntime.continueScheduledAt = nil
-            expeditionRuntime.continueWatchdog = nil
-            return
-        end
-    else
-        expeditionRuntime.finalCheckpointObservedAt = nil
-    end
     if state.status == "Checkpoint" and state.current == "InProgress" then
         local checkpointKey = tostring(state.increment) .. ":" .. tostring(state.status)
         local newCheckpoint = expeditionRuntime.checkpointKey ~= checkpointKey
