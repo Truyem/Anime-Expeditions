@@ -426,6 +426,7 @@ if not _G.ReplicaInterceptorActive then
 end
 local appConfig = {
     Language = "English",
+    modskinSelectedAoEColor = "AOEColorSunshine",
     autoSummonEnabled = false,
     autoSummonBanners = {},
     autoSummonUnits = {},
@@ -510,7 +511,7 @@ if makefolder then
     if not isfolder(macrosFolderPath) then makefolder(macrosFolderPath) end
 end
 local lobbyConfigKeys = {
-    "Language",
+    "Language", "modskinSelectedAoEColor",
     "autoSummonEnabled", "autoSummonBanners", "autoSummonUnits", "autoSummonAmount",
     "EventAuto", "QuestAuto", "storyMapMacros",
     "autoChallengeEnabled", "autoDailyChallengeEnabled", "challengeAutoSelectedSlots", "challengeMapMacros", "challengeActiveTarget", "challengeSkippedSlots",
@@ -734,6 +735,10 @@ end
 local englishTranslations = {
     ["Ngôn ngữ"] = "Language",
     ["Đã lưu ngôn ngữ. Hãy chạy lại script để cập nhật toàn bộ giao diện."] = "Language saved. Rerun the script to update the full UI.",
+    ["Thay đổi màu sắc vòng quét AoE (Range & Hitbox Indicator) theo thời gian thực cho tất cả Unit.\nClient-side, không tiêu tốn vật phẩm."] = "Changes every Unit's AoE range and hitbox indicator color in real time.\nClient-side only; no items are consumed.",
+    ["Chọn màu AoE Indicator"] = "Select AoE Indicator Color",
+    ["Chọn 1 trong 13 màu sắc AoE nâng cấp."] = "Choose one of 13 enhanced AoE colors.",
+    ["Đã đổi màu AoE thành:"] = "AoE color changed to:",
     ["Import Macro từ link"] = "Import Macro from Link",
     ["Chỉ mục được tick sẽ ghi đè"] = "Only checked entries will be overwritten",
     ["Chọn tất cả"] = "Select All",
@@ -2088,10 +2093,219 @@ local Tabs = {
     Join = Window:AddTab({ Title = "Auto Join Map", Icon = "map" }),
     Team = Window:AddTab({ Title = "Team", Icon = "users" }),
     Macro = Window:AddTab({ Title = "Macro In-Game", Icon = "play" }),
+    Modskin = Window:AddTab({ Title = "Mod Skin", Icon = "palette" }),
     Webhook = Window:AddTab({ Title = "Webhook", Icon = "message-circle" }),
     Settings = Window:AddTab({ Title = "Settings", Icon = "settings" }),
     Configs = Window:AddTab({ Title = "Configs", Icon = "folder" })
 }
+Tabs.Modskin:AddParagraph({
+    Title = "AoE Indicator Color Switcher",
+    Content = "Thay đổi màu sắc vòng quét AoE (Range & Hitbox Indicator) theo thời gian thực cho tất cả Unit.\nClient-side, không tiêu tốn vật phẩm.",
+})
+do
+    local AOE_COLORS = {
+        {ID = "AOEColorSunshine", Name = "Sunshine", Color = Color3.fromRGB(255, 220, 40)},
+        {ID = "AOEColorRainbow", Name = "Rainbow", Color = Color3.fromRGB(255, 100, 200)},
+        {ID = "AOEColorCobalt", Name = "Cobalt", Color = Color3.fromRGB(0, 160, 255)},
+        {ID = "AOEColorCrimson", Name = "Crimson", Color = Color3.fromRGB(220, 20, 60)},
+        {ID = "AOEColorPurple", Name = "Purple", Color = Color3.fromRGB(160, 32, 240)},
+        {ID = "AOEColorPink", Name = "Pink", Color = Color3.fromRGB(255, 105, 180)},
+        {ID = "AOEColorRed", Name = "Red", Color = Color3.fromRGB(240, 50, 50)},
+        {ID = "AOEColorOrange", Name = "Orange", Color = Color3.fromRGB(255, 140, 0)},
+        {ID = "AOEColorYellow", Name = "Yellow", Color = Color3.fromRGB(255, 215, 0)},
+        {ID = "AOEColorGreen", Name = "Green", Color = Color3.fromRGB(50, 205, 50)},
+        {ID = "AOEColorBlue", Name = "Blue", Color = Color3.fromRGB(30, 144, 255)},
+        {ID = "AOEColorWhite", Name = "White", Color = Color3.fromRGB(240, 240, 240)},
+        {ID = "AOEColorBlack", Name = "Black", Color = Color3.fromRGB(30, 30, 35)},
+    }
+    local AOE_COLOR_BY_ID = {}
+    local colorNames = {}
+    local nameToID = {}
+    local idToName = {}
+    for _, colorInfo in ipairs(AOE_COLORS) do
+        AOE_COLOR_BY_ID[colorInfo.ID] = colorInfo
+        table.insert(colorNames, colorInfo.Name)
+        nameToID[colorInfo.Name] = colorInfo.ID
+        idToName[colorInfo.ID] = colorInfo.Name
+    end
+
+    local modskinState = getgenv().AnimeExpeditionsModSkinState
+    if type(modskinState) ~= "table" then
+        modskinState = {}
+        getgenv().AnimeExpeditionsModSkinState = modskinState
+    end
+    local savedColorID = tostring(appConfig.modskinSelectedAoEColor or "")
+    if not AOE_COLOR_BY_ID[savedColorID] then savedColorID = "AOEColorSunshine" end
+    appConfig.modskinSelectedAoEColor = savedColorID
+    modskinState.SelectedID = savedColorID
+    if type(modskinState.IndicatorConnections) ~= "table" then
+        modskinState.IndicatorConnections = setmetatable({}, {__mode = "k"})
+    end
+
+    local RunService = game:GetService("RunService")
+    local function selectedColorInfo()
+        return AOE_COLOR_BY_ID[modskinState.SelectedID] or AOE_COLOR_BY_ID.AOEColorSunshine
+    end
+    local function findVisual(indicator)
+        if indicator:IsA("UIGradient") then return indicator, nil end
+        local gradient = indicator:FindFirstChildWhichIsA("UIGradient", true)
+        if gradient then return gradient, nil end
+        if indicator:IsA("GuiObject") or indicator:IsA("BasePart") then return nil, indicator end
+        return nil, indicator:FindFirstChildWhichIsA("GuiObject", true)
+            or indicator:FindFirstChildWhichIsA("BasePart", true)
+    end
+    local function enhanceIndicatorVisual(indicator)
+        if typeof(indicator) ~= "Instance" then return end
+        local connections = modskinState.IndicatorConnections
+        local existing = connections[indicator]
+        if existing and existing.Render and existing.Render.Connected then return end
+        if existing then
+            if existing.Render then existing.Render:Disconnect() end
+            if existing.Destroying then existing.Destroying:Disconnect() end
+            connections[indicator] = nil
+        end
+
+        local record = {}
+        connections[indicator] = record
+        local function cleanup()
+            if connections[indicator] ~= record then return end
+            connections[indicator] = nil
+            if record.Render and record.Render.Connected then record.Render:Disconnect() end
+            if record.Destroying and record.Destroying.Connected then record.Destroying:Disconnect() end
+        end
+        record.Destroying = indicator.Destroying:Connect(cleanup)
+        record.Render = RunService.RenderStepped:Connect(function()
+            if not indicator.Parent then cleanup() return end
+            local gradient, visual = findVisual(indicator)
+            local colorInfo = selectedColorInfo()
+            local currentID = colorInfo.ID
+            local t = os.clock()
+            local pulse = (math.sin(t * 3.5) + 1) / 2
+            local primaryColor = colorInfo.Color
+            local secondaryColor = colorInfo.Color
+            if currentID == "AOEColorRainbow" then
+                local hue = (t * 0.15) % 1
+                primaryColor = Color3.fromHSV(hue, 0.85, 1)
+                secondaryColor = Color3.fromHSV((hue + 0.3) % 1, 0.85, 1)
+            end
+            if gradient then
+                gradient.Color = ColorSequence.new(primaryColor, secondaryColor)
+                gradient.Rotation = (t * (currentID == "AOEColorRainbow" and 45 or 30)) % 360
+                gradient.Transparency = NumberSequence.new(0.05 + pulse * 0.15, 0.3 + pulse * 0.2)
+            elseif visual and visual:IsA("GuiObject") then
+                visual.BackgroundColor3 = primaryColor
+                visual.BackgroundTransparency = 0.15 + pulse * 0.2
+            elseif visual and visual:IsA("BasePart") then
+                visual.Color = primaryColor
+                visual.Material = Enum.Material.Neon
+                visual.Transparency = 0.15 + pulse * 0.25
+            end
+        end)
+    end
+
+    task.spawn(function()
+        if modskinState.HooksInstalled then return end
+        local ok, hookError = pcall(function()
+            if type(debug) ~= "table" or typeof(debug.getupvalues) ~= "function"
+                or typeof(debug.getupvalue) ~= "function" or typeof(hookfunction) ~= "function" then
+                error("executor does not provide debug.getupvalues, debug.getupvalue, and hookfunction", 0)
+            end
+
+            local components = FusionPackage:WaitForChild("Components", 10)
+            local gameComponents = components and components:WaitForChild("Game", 10)
+            local rangeFolder = gameComponents and gameComponents:WaitForChild("RangeIndicator", 10)
+            local hitboxFolder = gameComponents and gameComponents:WaitForChild("HitboxIndicator", 10)
+            if not rangeFolder or not hitboxFolder then error("required FusionPackage indicator modules were not found", 0) end
+            local rangeGameUnitModule = rangeFolder:WaitForChild("GameUnit", 10)
+            local hitboxGameUnitModule = hitboxFolder:WaitForChild("GameUnit", 10)
+            local placementModuleScript = rangeFolder:WaitForChild("Placement", 10)
+            if not rangeGameUnitModule or not hitboxGameUnitModule or not placementModuleScript then
+                error("required FusionPackage indicator modules were not found", 0)
+            end
+            local RangeGameUnit = require(rangeGameUnitModule)
+            local HitboxGameUnit = require(hitboxGameUnitModule)
+            local PlacementModule = require(placementModuleScript)
+            if typeof(RangeGameUnit) ~= "function" or typeof(HitboxGameUnit) ~= "function"
+                or typeof(PlacementModule) ~= "function" then
+                error("required indicator modules did not return hookable functions", 0)
+            end
+
+            local Rup = debug.getupvalues(RangeGameUnit)
+            local Hup = debug.getupvalues(HitboxGameUnit)
+            local firstDependency, secondDependency = debug.getupvalue(PlacementModule, 5)
+            local indicatorDependencies = secondDependency ~= nil and secondDependency or firstDependency
+            local innerScope = type(Rup) == "table" and Rup[1] or nil
+            local Colors = type(Rup) == "table" and Rup[6] or nil
+            if type(Rup) ~= "table" or type(Hup) ~= "table" or typeof(innerScope) ~= "function"
+                or Rup[2] == nil or Rup[3] == nil or Rup[4] == nil
+                or Hup[2] == nil or Hup[3] == nil or Hup[4] == nil
+                or type(Colors) ~= "table" or Colors.IndicatorBlue == nil
+                or type(indicatorDependencies) ~= "table" or type(indicatorDependencies.Information) ~= "table"
+                or indicatorDependencies.Information.Items == nil then
+                error("required indicator module upvalues have an unsupported layout", 0)
+            end
+
+            local function customRange(p1, p2)
+                local scope = innerScope(p1, Rup[2], Rup[3], Rup[4])
+                local range = scope:KeyOf(p2.GameUnitData, "CurrentStats", "Range")
+                local selectedItem = scope:KeyOf(indicatorDependencies.Information.Items, selectedColorInfo().ID)
+                local indicator = scope:RangeIndicator({
+                    Range = range,
+                    Color = scope:Fallback(scope:KeyOf(selectedItem, "Color"), Colors.IndicatorBlue),
+                    Gradient = scope:KeyOf(selectedItem, "Gradient"),
+                    Parent = p2.GameUnit,
+                })
+                enhanceIndicatorVisual(indicator)
+                return indicator
+            end
+            local function customHitbox(p1, p2)
+                local scope = innerScope(p1, Hup[2], Hup[3], Hup[4])
+                local selectedItem = scope:KeyOf(indicatorDependencies.Information.Items, selectedColorInfo().ID)
+                local indicator = scope:HitboxIndicator({
+                    TargetPosition = scope:Fallback(p2.TargetPosition, scope:KeyOf(p2.GameUnitData, "TargetPosition")),
+                    Range = scope:KeyOf(p2.GameUnitData, "CurrentStats", "Range"),
+                    Size = scope:KeyOf(p2.GameUnitData, "CurrentStats", "HitboxSize"),
+                    Type = scope:KeyOf(p2.GameUnitData, "CurrentStats", "HitboxType"),
+                    Parent = p2.GameUnit,
+                    Color = scope:Fallback(scope:KeyOf(selectedItem, "Color"), Colors.IndicatorBlue),
+                    Gradient = scope:KeyOf(selectedItem, "Gradient"),
+                })
+                enhanceIndicatorVisual(indicator)
+                return indicator
+            end
+
+            if not modskinState.RangeHookInstalled then
+                hookfunction(RangeGameUnit, customRange)
+                modskinState.RangeHookInstalled = true
+            end
+            if not modskinState.HitboxHookInstalled then
+                hookfunction(HitboxGameUnit, customHitbox)
+                modskinState.HitboxHookInstalled = true
+            end
+            modskinState.HooksInstalled = modskinState.RangeHookInstalled and modskinState.HitboxHookInstalled
+        end)
+        if not ok then warn("[Mod Skin] AoE indicator hooks failed: " .. tostring(hookError)) end
+    end)
+
+    Tabs.Modskin:AddDropdown("SelectAoEColor", {
+        Title = "Chọn màu AoE Indicator",
+        Description = "Chọn 1 trong 13 màu sắc AoE nâng cấp.",
+        Values = colorNames,
+        Multi = false,
+        Default = idToName[modskinState.SelectedID] or colorNames[1],
+    }):OnChanged(function(selectedName)
+        local selectedID = nameToID[tostring(selectedName)]
+        if not selectedID then return end
+        modskinState.SelectedID = selectedID
+        appConfig.modskinSelectedAoEColor = selectedID
+        saveConfig()
+        Fluent:Notify({
+            Title = "Modskin AoE Color",
+            Content = localizeText("Đã đổi màu AoE thành:") .. " " .. tostring(selectedName),
+            Duration = 4,
+        })
+    end)
+end
 Tabs.Settings:AddDropdown("Language", {
     Title = "Ngôn ngữ",
     Description = "English / Tiếng Việt",
