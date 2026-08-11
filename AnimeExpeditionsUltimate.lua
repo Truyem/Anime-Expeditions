@@ -10016,6 +10016,9 @@ local expeditionRuntime = {
     postBossExtractIncrement = nil,
     encounterKey = nil,
     encounterNpc = nil,
+    encounterNpcAt = 0,
+    encounterPromptAt = 0,
+    encounterDialogueActionAt = 0,
     encounterChoiceSentAt = 0,
     encounterChoiceAttempts = 0,
     encounterBlocking = false,
@@ -10127,12 +10130,12 @@ local function expeditionOwnedGameUnitCount()
     return count
 end
 local expeditionEncounterChoices = {
-    Trunks = "Speak",
-    Itachi = "Barter",
-    Frieren = "Discuss",
-    Himmel = "Engage",
-    Kenpachi = "Discuss",
-    Doflamingo = "Barter",
+    Trunks = {unit = "TrunksEVO", branch = "Speak", index = 1},
+    Itachi = {unit = "ItachiEVO", branch = "Barter", index = 2},
+    Frieren = {unit = "FrierenEVO", branch = "Speak", index = 1},
+    Himmel = {unit = "HimmelTheHero", branch = "Engage", index = 3},
+    Kenpachi = {unit = "KenpachiEVO", branch = "Barter", index = 2},
+    Doflamingo = {unit = "Doflamingo", branch = "Barter", index = 2},
 }
 local expeditionEncounterDialogueSignals = {
     Trunks = {"dont have much time", "take this before i go"},
@@ -10192,15 +10195,29 @@ local function expeditionEncounterNPC()
     end
     return nil
 end
-local function expeditionButtonHasLabel(button, wanted)
-    wanted = expeditionNormalizeText(wanted)
-    if button:IsA("TextButton") and expeditionNormalizeText(button.Text) == wanted then return true end
-    for _, child in ipairs(button:GetDescendants()) do
-        if (child:IsA("TextLabel") or child:IsA("TextButton")) and expeditionGuiVisible(child) and expeditionNormalizeText(child.Text) == wanted then
-            return true
+local function expeditionNearestEncounterPrompt()
+    local character = LocalPlayer.Character
+    local root = character and character:FindFirstChild("HumanoidRootPart")
+    if not root then return nil end
+    local best
+    for _, prompt in ipairs(workspace:GetDescendants()) do
+        if prompt:IsA("ProximityPrompt") and prompt.Enabled then
+            local model = prompt:FindFirstAncestorWhichIsA("Model")
+            local pivot = model and (model:FindFirstChild("HumanoidRootPart") or model.PrimaryPart)
+            if pivot then
+                for npc, choice in pairs(expeditionEncounterChoices) do
+                    if model.Name == choice.unit then
+                        local distance = (root.Position - pivot.Position).Magnitude
+                        if distance <= 250 and (not best or distance < best.distance) then
+                            best = {npc = npc, prompt = prompt, distance = distance}
+                        end
+                        break
+                    end
+                end
+            end
         end
     end
-    return false
+    return best
 end
 local function expeditionActivateButton(button)
     if not button or not expeditionGuiVisible(button) or not button.Active then return false end
@@ -10280,6 +10297,9 @@ local function expeditionTryEncounter()
         end
         expeditionRuntime.encounterKey = nil
         expeditionRuntime.encounterNpc = nil
+        expeditionRuntime.encounterNpcAt = 0
+        expeditionRuntime.encounterPromptAt = 0
+        expeditionRuntime.encounterDialogueActionAt = 0
         expeditionRuntime.encounterChoiceSentAt = 0
         expeditionRuntime.encounterChoiceAttempts = 0
         expeditionRuntime.encounterLastLog = ""
@@ -10295,11 +10315,31 @@ local function expeditionTryEncounter()
     local replica = expeditionGameReplica()
     local currentNode = replica and replica.Data and replica.Data.CurrentNode
     local detectedNpc = expeditionEncounterNPC()
-    if detectedNpc then expeditionRuntime.encounterNpc = detectedNpc end
+    if detectedNpc and detectedNpc ~= expeditionRuntime.encounterNpc then
+        expeditionRuntime.encounterNpc = detectedNpc
+        expeditionRuntime.encounterNpcAt = tick()
+    end
     local npc = detectedNpc or expeditionRuntime.encounterNpc
+    if not npc and tick() - (expeditionRuntime.encounterPromptAt or 0) >= 2 then
+        expeditionRuntime.encounterPromptAt = tick()
+        local candidate = expeditionNearestEncounterPrompt()
+        if candidate then
+            local ok, err = false, "fireproximityprompt unavailable"
+            if fireproximityprompt then ok, err = pcall(fireproximityprompt, candidate.prompt) end
+            if ok then
+                npc = candidate.npc
+                expeditionRuntime.encounterNpc = npc
+                expeditionRuntime.encounterNpcAt = tick()
+                print(("[EXP ENCOUNTER] Triggered %s prompt at %.1f studs"):format(npc, candidate.distance))
+            else
+                warn("[EXP ENCOUNTER] Prompt trigger failed: " .. tostring(err))
+            end
+        end
+    end
     local key = table.concat({tostring(state.increment), tostring(currentNode and currentNode.X), tostring(currentNode and currentNode.Y), tostring(npc)}, ":")
     if expeditionRuntime.encounterKey ~= key then
         expeditionRuntime.encounterKey = key
+        expeditionRuntime.encounterDialogueActionAt = 0
         expeditionRuntime.encounterChoiceSentAt = 0
         expeditionRuntime.encounterChoiceAttempts = 0
     end
@@ -10310,28 +10350,26 @@ local function expeditionTryEncounter()
         end
         return true
     end
+    if tick() - (expeditionRuntime.encounterNpcAt or 0) < 0.75
+        or tick() - (expeditionRuntime.encounterDialogueActionAt or 0) < 0.75 then return true end
+    expeditionRuntime.encounterDialogueActionAt = tick()
+    pcall(Actions.DialogueSkipText)
+    task.wait(0.1)
+    pcall(Actions.DialogueContinue)
+    task.wait(0.1)
     local choice = expeditionEncounterChoices[npc]
-    if (expeditionRuntime.encounterChoiceSentAt or 0) > 0 then
-        if tick() - expeditionRuntime.encounterChoiceSentAt < 2 then return true end
-        expeditionRuntime.encounterChoiceSentAt = 0
-    end
-    local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
-    for _, button in ipairs(playerGui and playerGui:GetDescendants() or {}) do
-        if button:IsA("GuiButton") and expeditionGuiVisible(button) and expeditionButtonHasLabel(button, choice) then
-            if expeditionActivateButton(button) then
-                expeditionRuntime.encounterChoiceSentAt = tick()
-                expeditionRuntime.encounterChoiceAttempts = (expeditionRuntime.encounterChoiceAttempts or 0) + 1
-                local logKey = key .. ":" .. choice
-                expeditionRuntime.encounterLastLog = logKey
-                print("[EXP ENCOUNTER] " .. npc .. " -> " .. choice .. " (attempt " .. expeditionRuntime.encounterChoiceAttempts .. ")")
-            end
-            return true
+    if (expeditionRuntime.encounterChoiceSentAt or 0) == 0 then
+        local ok, err = pcall(Actions.DialogueChoiceChosen, choice.index)
+        if ok then
+            expeditionRuntime.encounterChoiceSentAt = tick()
+            print(("[EXP ENCOUNTER] Direct branch %s -> %s (index %d)"):format(npc, choice.branch, choice.index))
+        else
+            warn("[EXP ENCOUNTER] Direct branch failed: " .. tostring(err))
         end
-    end
-    local logKey = key .. ":missing:" .. choice
-    if expeditionRuntime.encounterLastLog ~= logKey then
-        expeditionRuntime.encounterLastLog = logKey
-        warn("[EXP ENCOUNTER] Không tìm thấy lựa chọn an toàn " .. choice .. " cho " .. npc .. "; không chọn nhánh rủi ro.")
+    else
+        local ok, err = pcall(Actions.DialogueChoiceChosen, 1)
+        expeditionRuntime.encounterChoiceAttempts = (expeditionRuntime.encounterChoiceAttempts or 0) + 1
+        if not ok then warn("[EXP ENCOUNTER] Follow-up choice failed: " .. tostring(err)) end
     end
     return true
 end
@@ -11471,7 +11509,14 @@ local function expeditionTryItems()
         local item = expeditionHotbarItem("ExpeditionStatAnvil")
         if not item then return end
         require(FusionPackage.Shared).SelectedHotbarIndex:set(item.slot)
-        print("[EXP AUTO] Anvil selected from hotbar slot " .. tostring(item.slot) .. "; waiting for card choice")
+        local ok, err = pcall(function()
+            Actions.UseItem("ExpeditionStatAnvil")
+        end)
+        if ok then
+            print("[EXP AUTO] Anvil use requested from hotbar slot " .. tostring(item.slot) .. "; waiting for card choice")
+        else
+            warn("[EXP AUTO] Anvil use failed: " .. tostring(err))
+        end
         expeditionRuntime.lastUse = tick()
     end
 end
