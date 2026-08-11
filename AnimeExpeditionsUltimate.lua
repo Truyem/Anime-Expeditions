@@ -9803,6 +9803,8 @@ local expeditionRuntime = {
     encounterKey = nil,
     encounterNpc = nil,
     encounterChoiceSentAt = 0,
+    encounterChoiceAttempts = 0,
+    encounterBlocking = false,
     encounterLastLog = "",
     dicePromptState = nil,
     dicePromptStateAt = 0,
@@ -9929,12 +9931,22 @@ local expeditionEncounterDialogueSignals = {
 local function expeditionNormalizeText(value)
     return tostring(value or ""):lower():gsub("[^%w%s]", ""):gsub("%s+", " "):gsub("^%s+", ""):gsub("%s+$", "")
 end
+local function expeditionGuiVisible(object)
+    if not object or not object:IsA("GuiObject") or not object.Visible then return false end
+    local ancestor = object.Parent
+    while ancestor do
+        if ancestor:IsA("GuiObject") and not ancestor.Visible then return false end
+        if ancestor:IsA("LayerCollector") and not ancestor.Enabled then return false end
+        ancestor = ancestor.Parent
+    end
+    return object.AbsoluteSize.X > 0 and object.AbsoluteSize.Y > 0
+end
 local function expeditionVisibleGuiText()
     local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
     if not playerGui then return "" end
     local parts = {}
     for _, object in ipairs(playerGui:GetDescendants()) do
-        if (object:IsA("TextLabel") or object:IsA("TextButton") or object:IsA("TextBox")) and object.Visible then
+        if (object:IsA("TextLabel") or object:IsA("TextButton") or object:IsA("TextBox")) and expeditionGuiVisible(object) then
             local text = expeditionNormalizeText(object.Text)
             if text ~= "" then table.insert(parts, text) end
         end
@@ -9948,23 +9960,46 @@ local function expeditionEncounterNPC()
             if text:find(signal, 1, true) then return npc end
         end
     end
+    local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+    for _, object in ipairs(playerGui and playerGui:GetDescendants() or {}) do
+        if (object:IsA("TextLabel") or object:IsA("TextButton")) and expeditionGuiVisible(object) then
+            local label = expeditionNormalizeText(object.Text)
+            for npc in pairs(expeditionEncounterChoices) do
+                if label == expeditionNormalizeText(npc) then
+                    local ancestor = object.Parent
+                    while ancestor and ancestor ~= playerGui do
+                        local name = tostring(ancestor.Name):lower()
+                        if name:find("dialog", 1, true) or name:find("encounter", 1, true) then return npc end
+                        ancestor = ancestor.Parent
+                    end
+                end
+            end
+        end
+    end
     return nil
 end
 local function expeditionButtonHasLabel(button, wanted)
     wanted = expeditionNormalizeText(wanted)
     if button:IsA("TextButton") and expeditionNormalizeText(button.Text) == wanted then return true end
     for _, child in ipairs(button:GetDescendants()) do
-        if (child:IsA("TextLabel") or child:IsA("TextButton")) and child.Visible and expeditionNormalizeText(child.Text) == wanted then
+        if (child:IsA("TextLabel") or child:IsA("TextButton")) and expeditionGuiVisible(child) and expeditionNormalizeText(child.Text) == wanted then
             return true
         end
     end
     return false
 end
 local function expeditionActivateButton(button)
-    if not button or not button.Visible or not button.Active then return false end
+    if not button or not expeditionGuiVisible(button) or not button.Active then return false end
     if firesignal then
-        local ok = pcall(function() firesignal(button.Activated) end)
-        if ok then return true end
+        local fired = false
+        for _, signalName in ipairs({"Activated", "MouseButton1Click", "MouseButton1Down", "MouseButton1Up"}) do
+            local signalOk, signal = pcall(function() return button[signalName] end)
+            if signalOk and signal then
+                local fireOk = pcall(firesignal, signal)
+                fired = fireOk or fired
+            end
+        end
+        if fired then return true end
     end
     local center = button.AbsolutePosition + button.AbsoluteSize / 2
     local ok = pcall(function()
@@ -9977,7 +10012,7 @@ local function expeditionDicePromptState()
     local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
     if not playerGui then return nil, nil end
     for _, object in ipairs(playerGui:GetDescendants()) do
-        if (object:IsA("TextLabel") or object:IsA("TextButton")) and object.Visible then
+        if (object:IsA("TextLabel") or object:IsA("TextButton")) and expeditionGuiVisible(object) then
             local text = expeditionNormalizeText(object.Text)
             if text == "click anywhere to roll dice" then return "Roll", object:FindFirstAncestorWhichIsA("ScreenGui") end
             if text == "click anywhere to skip" then return "Rolling", object:FindFirstAncestorWhichIsA("ScreenGui") end
@@ -9989,7 +10024,7 @@ end
 local function expeditionActivateFullscreenPrompt(screenGui)
     local bestButton, bestArea
     for _, object in ipairs(screenGui and screenGui:GetDescendants() or {}) do
-        if object:IsA("GuiButton") and object.Visible and object.Active then
+        if object:IsA("GuiButton") and expeditionGuiVisible(object) and object.Active then
             local area = object.AbsoluteSize.X * object.AbsoluteSize.Y
             if not bestArea or area > bestArea then bestButton, bestArea = object, area end
         end
@@ -10012,8 +10047,7 @@ local function expeditionHandleDicePrompt()
         expeditionRuntime.dicePromptState = promptState
         expeditionRuntime.dicePromptStateAt = tick()
     end
-    if promptState == "Rolling" then return true end
-    local requiredDelay = promptState == "Close" and 0.8 or 0.25
+    local requiredDelay = promptState == "Close" and 0.8 or (promptState == "Rolling" and 3 or 0.25)
     if tick() - (expeditionRuntime.dicePromptStateAt or 0) < requiredDelay
         or tick() - (expeditionRuntime.dicePromptLastClick or 0) < 1 then return true end
     if expeditionActivateFullscreenPrompt(screenGui) then
@@ -10025,9 +10059,15 @@ end
 local function expeditionTryEncounter()
     local state = expeditionState()
     if not state or state.mode ~= "Expedition" or tostring(state.status) ~= "Encounter" then
+        if expeditionRuntime.encounterBlocking then
+            expeditionRuntime.encounterBlocking = false
+            if not isPlaying then getgenv().ExpeditionContinueBlocked = false end
+            print("[EXP ENCOUNTER] Encounter finished; released Continue lock")
+        end
         expeditionRuntime.encounterKey = nil
         expeditionRuntime.encounterNpc = nil
         expeditionRuntime.encounterChoiceSentAt = 0
+        expeditionRuntime.encounterChoiceAttempts = 0
         expeditionRuntime.encounterLastLog = ""
         expeditionRuntime.dicePromptState = nil
         expeditionRuntime.dicePromptStateAt = 0
@@ -10035,6 +10075,7 @@ local function expeditionTryEncounter()
     end
     isPlaying = false
     lastHasRunMacro = true
+    expeditionRuntime.encounterBlocking = true
     getgenv().ExpeditionContinueBlocked = true
     if expeditionHandleDicePrompt() then return true end
     local replica = expeditionGameReplica()
@@ -10046,6 +10087,7 @@ local function expeditionTryEncounter()
     if expeditionRuntime.encounterKey ~= key then
         expeditionRuntime.encounterKey = key
         expeditionRuntime.encounterChoiceSentAt = 0
+        expeditionRuntime.encounterChoiceAttempts = 0
     end
     if not npc then
         if expeditionRuntime.encounterLastLog ~= key then
@@ -10055,17 +10097,19 @@ local function expeditionTryEncounter()
         return true
     end
     local choice = expeditionEncounterChoices[npc]
-    if (expeditionRuntime.encounterChoiceSentAt or 0) > 0 then return true end
+    if (expeditionRuntime.encounterChoiceSentAt or 0) > 0 then
+        if tick() - expeditionRuntime.encounterChoiceSentAt < 2 then return true end
+        expeditionRuntime.encounterChoiceSentAt = 0
+    end
     local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
     for _, button in ipairs(playerGui and playerGui:GetDescendants() or {}) do
-        if button:IsA("GuiButton") and button.Visible and expeditionButtonHasLabel(button, choice) then
+        if button:IsA("GuiButton") and expeditionGuiVisible(button) and expeditionButtonHasLabel(button, choice) then
             if expeditionActivateButton(button) then
                 expeditionRuntime.encounterChoiceSentAt = tick()
+                expeditionRuntime.encounterChoiceAttempts = (expeditionRuntime.encounterChoiceAttempts or 0) + 1
                 local logKey = key .. ":" .. choice
-                if expeditionRuntime.encounterLastLog ~= logKey then
-                    expeditionRuntime.encounterLastLog = logKey
-                    print("[EXP ENCOUNTER] " .. npc .. " -> " .. choice)
-                end
+                expeditionRuntime.encounterLastLog = logKey
+                print("[EXP ENCOUNTER] " .. npc .. " -> " .. choice .. " (attempt " .. expeditionRuntime.encounterChoiceAttempts .. ")")
             end
             return true
         end
