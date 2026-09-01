@@ -3,6 +3,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CoreGui = game:GetService("CoreGui")
 local ScriptContext = game:GetService("ScriptContext")
+local CollectionService = game:GetService("CollectionService")
 local LocalPlayer = Players.LocalPlayer
 do
     local earlyState = getgenv().KickBlockConnectionLost or {}
@@ -431,18 +432,9 @@ local appConfig = {
     autoSummonBanners = {},
     autoSummonUnits = {},
     autoSummonAmount = 1,
-    EventAuto = {
-        autoGuessUnit = false,
-        guessDifficulties = {"Normal", "Hard"},
-        autoBossBounty = false,
-        bossBountyAutoReroll = false,
-        bossBountyKeepRarities = {"Rare", "Legendary", "Secret"},
-        bossBountyMapMacros = {},
-        autoDragonWish = false,
-        dragonWishMapMacros = {},
-        autoRedeemWish = false,
-        wishUnitId = nil,
-    },
+    autoFishingEnabled = false,
+    summerHotbarEnabled = false,
+    summerFishCloneTarget = "Random",
     QuestAuto = {Enabled = false, MapMacros = {}, ActiveTarget = nil},
     storyMapMacros = {},
     autoChallengeEnabled = false,
@@ -512,14 +504,14 @@ if makefolder then
 end
 local lobbyConfigKeys = {
     "Language", "modskinSelectedAoEColor",
-    "autoSummonEnabled", "autoSummonBanners", "autoSummonUnits", "autoSummonAmount",
-    "EventAuto", "QuestAuto", "storyMapMacros",
+    "autoSummonEnabled", "autoSummonBanners", "autoSummonUnits", "autoSummonAmount", "autoFishingEnabled",
+    "QuestAuto", "storyMapMacros",
     "autoChallengeEnabled", "autoDailyChallengeEnabled", "challengeAutoSelectedSlots", "challengeMapMacros", "challengeActiveTarget", "challengeSkippedSlots",
     "AutoJoin", "autoJoinEnabled", "autoJoinTeamEnabled", "autoJoinMode", "autoCraftEnabled", "autoCraftItems", "autoExpeditionCraftEnabled", "autoExpeditionCraftItems", "autoShopEnabled", "ShopSelections", "TeamSelections",
     "autoClaimQuests", "autoClaimBP", "autoClaimCalendar", "autoClaimMilestones", "autoClaimIndex", "autoClaimAchievements", "autoRedeemCodes", "hidePlayerNames", "fixLagEnabled", "fpsCap", "autoLeaveAfterMinutes", "autoLeaveAfterMinutesValue", "AutoStatRoll"
 }
 local ingameConfigKeys = {
-    "autoRecordEnabled", "autoPlayEnabled", "skipExpeditionDefenseMacro", "expeditionAutoVoteStart", "autoRestartInf", "restartWaveNum", "autoLeaveSpriteMax", "autoLeaveExpeditionScrapMax", "expeditionScrapCraftPending", "expeditionScrapCraftPendingSince", "autoLeaveOnDefeat", "autoLeaveOnPlayerJoin", "AntiAFK", "MobileToggle", "WebhookUrl", "webhookWinEnabled", "webhookSummonEnabled", "ExpeditionAuto", "LobbyMaintenance"
+    "autoRecordEnabled", "autoPlayEnabled", "skipExpeditionDefenseMacro", "expeditionAutoVoteStart", "autoRestartInf", "restartWaveNum", "autoLeaveSpriteMax", "autoLeaveExpeditionScrapMax", "expeditionScrapCraftPending", "expeditionScrapCraftPendingSince", "autoLeaveOnDefeat", "autoLeaveOnPlayerJoin", "AntiAFK", "MobileToggle", "WebhookUrl", "webhookWinEnabled", "webhookSummonEnabled", "summerHotbarEnabled", "summerFishCloneTarget", "ExpeditionAuto", "LobbyMaintenance"
 }
 local function normalizeLanguage(value)
     return value == "Tiếng Việt" and "Tiếng Việt" or "English"
@@ -616,37 +608,9 @@ appConfig.autoExpeditionCraftItems = type(appConfig.autoExpeditionCraftItems) ==
 appConfig.Macros = appConfig.Macros or {}
 appConfig.autoSummonBanners = appConfig.autoSummonBanners or {}
 appConfig.autoSummonUnits = appConfig.autoSummonUnits or {}
-appConfig.EventAuto = type(appConfig.EventAuto) == "table" and appConfig.EventAuto or {}
-appConfig.EventAuto.autoGuessUnit = appConfig.EventAuto.autoGuessUnit == true
-appConfig.EventAuto.autoBossBounty = appConfig.EventAuto.autoBossBounty == true
-appConfig.EventAuto.bossBountyAutoReroll = appConfig.EventAuto.bossBountyAutoReroll == true
-appConfig.EventAuto.autoDragonWish = appConfig.EventAuto.autoDragonWish == true
-appConfig.EventAuto.autoRedeemWish = appConfig.EventAuto.autoRedeemWish == true
-appConfig.EventAuto.wishUnitId = appConfig.EventAuto.wishUnitId and tostring(appConfig.EventAuto.wishUnitId) or nil
-appConfig.EventAuto.bossBountyMapMacros = type(appConfig.EventAuto.bossBountyMapMacros) == "table" and appConfig.EventAuto.bossBountyMapMacros or {}
-appConfig.EventAuto.dragonWishMapMacros = type(appConfig.EventAuto.dragonWishMapMacros) == "table" and appConfig.EventAuto.dragonWishMapMacros or {}
-do
-local allowedFields = {
-    guessDifficulties = {Normal = true, Hard = true},
-    bossBountyKeepRarities = {Rare = true, Legendary = true, Secret = true},
-}
-local defaults = {
-    guessDifficulties = {"Normal", "Hard"},
-    bossBountyKeepRarities = {"Rare", "Legendary", "Secret"},
-}
-for field, allowed in pairs(allowedFields) do
-    local selected, seen = {}, {}
-    for key, value in pairs(type(appConfig.EventAuto[field]) == "table" and appConfig.EventAuto[field] or defaults[field]) do
-        local option = type(key) == "number" and value or (value and key or nil)
-        option = option and tostring(option) or nil
-        if option and allowed[option] and not seen[option] then
-            seen[option] = true
-            table.insert(selected, option)
-        end
-    end
-    appConfig.EventAuto[field] = selected
-end
-end
+appConfig.autoFishingEnabled = appConfig.autoFishingEnabled == true
+appConfig.summerHotbarEnabled = appConfig.summerHotbarEnabled == true
+appConfig.summerFishCloneTarget = type(appConfig.summerFishCloneTarget) == "string" and appConfig.summerFishCloneTarget ~= "" and appConfig.summerFishCloneTarget or "Random"
 appConfig.QuestAuto = type(appConfig.QuestAuto) == "table" and appConfig.QuestAuto or {}
 appConfig.QuestAuto.Enabled = appConfig.QuestAuto.Enabled == true
 appConfig.QuestAuto.MapMacros = type(appConfig.QuestAuto.MapMacros) == "table" and appConfig.QuestAuto.MapMacros or {}
@@ -765,17 +729,19 @@ local englishTranslations = {
     ["Quét code active từ Anime Expeditions Wiki mỗi 10 phút."] = "Checks the Anime Expeditions Wiki for active codes every 10 minutes.",
     ["Tự động quét server và roll Unit nếu có trong Banner."] = "Scans servers and summons when a target Unit appears in a Banner.",
     ["Bật Auto Summon (Snipe)"] = "Enable Auto Summon (Snipe)",
-    ["Tự hoàn thành các difficulty đã chọn mỗi ngày."] = "Completes the selected difficulties each day.",
-    ["Roll và đánh tối đa 5 Boss Bounty mỗi ngày."] = "Rerolls and clears up to 5 Boss Bounties each day.",
-    ["Tốn 5.000 Gold nếu rarity hiện tại không nằm trong danh sách giữ."] = "Spends 5,000 Gold when the current rarity is not in the keep list.",
-    ["Boss rarity muốn giữ"] = "Boss rarities to keep",
-    ["Đọc quest ShenronEvent runtime, tự claim và chạy objective được hỗ trợ."] = "Reads the live ShenronEvent quest, claims it, and runs supported objectives.",
-    ["Mặc định tắt. Chỉ áp Unbound khi đã chọn UnitID DBZ hợp lệ."] = "Off by default. Applies Unbound only when a valid DBZ UnitID is selected.",
-    ["DBZ Unit nhận Unbound"] = "DBZ Unit to receive Unbound",
-    ["Boss Bounty - Macro Theo Map"] = "Boss Bounty - Macro by Map",
-    ["Mỗi map chọn Macro riêng chỉ dùng khi Boss Bounty điều khiển trận."] = "Choose a separate Macro for each map, used only when Boss Bounty controls the match.",
-    ["Dragon Wish - Macro Theo Map"] = "Dragon Wish - Macro by Map",
-    ["Mỗi map chọn Macro riêng chỉ dùng khi Dragon Wish chạy objective."] = "Choose a separate Macro for each map, used only for Dragon Wish objectives.",
+    ["Câu Cá Summer Event"] = "Summer Event Fishing",
+    ["Tự teleport đến bờ hồ gần nhất, equip cần câu, cast và hoàn thành minigame."] = "Teleports to the nearest shore, equips a rod, casts, and completes the minigame.",
+    ["Bật Auto Câu Cá"] = "Enable Auto Fishing",
+    ["Auto Câu Cá đang tắt."] = "Auto Fishing is disabled.",
+    ["Không tìm thấy cần câu trong kho."] = "No fishing rod was found in the inventory.",
+    ["Không tìm thấy water zone hợp lệ."] = "No valid water zone was found.",
+    ["Đang teleport tới bờ hồ..."] = "Teleporting to the shore...",
+    ["Đang equip cần câu..."] = "Equipping the fishing rod...",
+    ["Đang thả câu..."] = "Casting...",
+    ["Đang chờ cá cắn câu..."] = "Waiting for a bite...",
+    ["Đang kéo cá và hoàn thành minigame..."] = "Reeling in and completing the minigame...",
+    ["Auto Fishing đang chờ Lobby Maintenance hoàn tất."] = "Auto Fishing is waiting for Lobby Maintenance to finish.",
+    ["Đang chạy Auto Fishing."] = "Auto Fishing is running.",
     ["Bật Auto Daily + Weekly Quest"] = "Enable Auto Daily + Weekly Quest",
     ["Ưu tiên Quest trước Challenge và Auto Join Map."] = "Prioritizes Quests over Challenges and Auto Join Map.",
     ["Macro Theo Map"] = "Macro by Map",
@@ -1013,7 +979,6 @@ local englishTranslations = {
     ["Không còn Unit Level 1 thuộc rarity đã chọn; bỏ qua Training và mở khóa Join."] = "No Level 1 Units match the selected rarities; skipping Training and unlocking Join.",
     ["Auto Join đang tắt."] = "Auto Join is disabled.",
     ["Chưa chọn Map."] = "No Map selected.",
-    ["Đang chờ Auto Event."] = "Waiting for Auto Event.",
     ["Đang chờ Auto Quest."] = "Waiting for Auto Quest.",
     ["Đang chờ Auto Challenge."] = "Waiting for Auto Challenge.",
     ["Đang chờ Auto Shop."] = "Waiting for Auto Shop.",
@@ -1041,13 +1006,11 @@ local englishTranslations = {
     ["Chưa có Unit trong Training Grounds."] = "No Units are in the Training Grounds.",
     ["Đang chờ dữ liệu Daily / Weekly..."] = "Waiting for Daily / Weekly data...",
     ["Đang chờ dữ liệu Regular Challenge..."] = "Waiting for Regular Challenge data...",
-    ["Auto Event đang tắt."] = "Auto Event is disabled.",
     ["Auto Quest đang tắt."] = "Auto Quest is disabled.",
     ["Auto Daily / Regular Challenge đang tắt."] = "Auto Daily / Regular Challenge is disabled.",
     ["Đã hoàn thành mọi nhiệm vụ."] = "All quests completed.",
     ["Đang ở trận không thuộc Auto Quest."] = "The current match is not controlled by Auto Quest.",
     ["Đang ở trận không thuộc Auto Challenge."] = "The current match is not controlled by Auto Challenge.",
-    ["Đang chờ Auto Event hoàn tất..."] = "Waiting for Auto Event to finish...",
     ["Đang chờ Auto Quest hoàn tất..."] = "Waiting for Auto Quest to finish...",
     ["Chưa có Act"] = "No Act",
     ["Đã xóa %d Select dư%s"] = "Removed %d redundant Select actions%s",
@@ -1116,19 +1079,6 @@ local englishTranslations = {
     ["Quest chưa đủ mục tiêu; đang quay lại đúng map Quest."] = "The Quest target is incomplete; returning to the assigned Quest map.",
     ["Quest chưa đủ mục tiêu; đang chờ game Auto Retry..."] = "The Quest target is incomplete; waiting for the game's Auto Retry...",
     ["Đang chờ trận hiện tại kết thúc (theo Matches Played)..."] = "Waiting for the current match to end (based on Matches Played)...",
-    ["Boss Bounty chưa được server xác nhận sau 15s; đã nhường automation thấp hơn."] = "The server did not confirm Boss Bounty within 15 seconds; yielding to lower-priority automation.",
-    ["Boss Bounty đang chờ TrackCounter xác nhận hoàn thành."] = "Boss Bounty is waiting for TrackCounter to confirm completion.",
-    ["Boss Bounty cần 5.000 Gold để Reroll; đang giữ bounty hiện tại."] = "Boss Bounty requires 5,000 Gold to reroll; keeping the current bounty.",
-    ["Boss Bounty đã xác nhận; đang chờ về Lobby để Roll lượt tiếp theo."] = "Boss Bounty was confirmed; waiting to return to the Lobby for the next roll.",
-    ["Boss Bounty không cập nhật sau trận; đã nhường automation thấp hơn."] = "Boss Bounty did not update after the match; yielding to lower-priority automation.",
-    ["Boss Bounty kết thúc; đang chờ server xác nhận."] = "Boss Bounty ended; waiting for server confirmation.",
-    ["Đang chờ quest category ShenronEvent tải..."] = "Waiting for the ShenronEvent quest category to load...",
-    ["ShenronEvent chưa được server load; nhường automation thấp hơn."] = "The server has not loaded ShenronEvent; yielding to lower-priority automation.",
-    ["Dragon's Wish đã redeem."] = "Dragon's Wish has been redeemed.",
-    ["Đã đủ 7 Orb; Auto Redeem đang tắt hoặc chưa chọn unit hợp lệ."] = "All 7 Orbs are ready; Auto Redeem is disabled or no valid Unit is selected.",
-    ["Dragon Wish Infinite đã đạt mốc; đang về Lobby để cập nhật tiến độ."] = "Dragon Wish Infinite reached its target; returning to the Lobby to update progress.",
-    ["Dragon Wish đang chờ trận hiện tại kết thúc."] = "Dragon Wish is waiting for the current match to end.",
-    ["Dragon Wish chỉ còn objective passive/unsupported hoặc thiếu Macro; nhường automation thấp hơn."] = "Dragon Wish has only passive or unsupported objectives, or lacks a Macro; yielding to lower-priority automation.",
     ["Tất cả Regular Challenge hiện tại đã skip. Đang nhường Auto Join Map."] = "All current Regular Challenges were skipped. Yielding to Auto Join Map.",
     ["Regular Challenge chưa khả dụng theo dữ liệu game. Đang nhường Auto Join Map."] = "Regular Challenge is unavailable according to game data. Yielding to Auto Join Map.",
     ["Đã hết lượt Regular Challenge hôm nay. Đang nhường Auto Join Map."] = "No Regular Challenge attempts remain today. Yielding to Auto Join Map.",
@@ -1205,6 +1155,8 @@ local FusionPackage = ReplicatedStorage:WaitForChild("FusionPackage")
 local Actions = require(FusionPackage:WaitForChild("Actions"))
 local Fusion = require(FusionPackage:WaitForChild("Fusion"))
 local Dependencies = require(FusionPackage:WaitForChild("Dependencies"))
+local FishingNodes = require(ReplicatedStorage:WaitForChild("Nodes"))
+local ItemUtils = require(ReplicatedStorage.Shared:WaitForChild("ItemUtils"))
 pcall(function()
     local oldConnection = getgenv().AnimeExpeditionsHotbarReplicaConnection
     if oldConnection and oldConnection.Disconnect then oldConnection:Disconnect() end
@@ -1224,19 +1176,6 @@ local ShopsInfo = require(SharedInfo:WaitForChild("Shops"))
 local UnitsInfo = require(SharedInfo:WaitForChild("Units"))
 local EventsInfo = require(SharedInfo:WaitForChild("Events"))
 local QuestsInfo = require(SharedInfo:WaitForChild("Quests"))
-local EventAuto = {
-    Runtime = {
-        Status = "Đang chờ dữ liệu Event...",
-        LastDisplay = "",
-        Pending = nil,
-        ActiveTarget = nil,
-        LastJoinAt = 0,
-        FinishedAt = 0,
-        MissingSince = {},
-        WishUnitLabels = {},
-        WishLabelToId = {},
-    },
-}
 local QuestAuto = {
     Maps = (function()
         local mapSet = {}
@@ -1252,32 +1191,6 @@ local QuestAuto = {
     end)(),
     Runtime = {Status = "Đang chờ dữ liệu Daily / Weekly...", LastDisplay = "", LastJoinAt = 0, LastReturnAt = 0, FinishedAt = 0, Pending = nil, SkippedChallenges = {}, SkippedModes = {}},
 }
-function EventAuto:Peek(value)
-    local ok, result = pcall(function() return Fusion.peek(value) end)
-    return ok and result or value
-end
-function EventAuto:GetPlayerData()
-    local playerData = self:Peek(Dependencies.PlayerData)
-    return type(playerData) == "table" and playerData or nil
-end
-function EventAuto:GetEventData(eventId)
-    local playerData = self:GetPlayerData()
-    local eventData = playerData and self:Peek(playerData.EventData) or nil
-    local result = type(eventData) == "table" and self:Peek(eventData[eventId]) or nil
-    return type(result) == "table" and result or nil
-end
-function EventAuto:TargetMatchesState(stateInfo)
-    local target = self.Runtime.ActiveTarget
-    if type(target) ~= "table" or type(stateInfo) ~= "table" or not target.JoinIssuedAt then return false end
-    if tostring(stateInfo.CurrentGameState or "") == "Lobby" then return false end
-    local function normalize(value) return tostring(value or ""):lower():gsub("[^%w]", "") end
-    local modeMatches = normalize(target.Mode) == normalize(stateInfo.Gamemode)
-    local stateMap = normalize(stateInfo.Map)
-    local targetMap = normalize(target.Map)
-    local mapMatches = targetMap == "" or (stateMap ~= "" and stateMap ~= "nil" and targetMap == stateMap)
-    local actMatches = normalize(target.Act) == "" or normalize(stateInfo.Act) == "" or normalize(target.Act) == normalize(stateInfo.Act)
-    return modeMatches and mapMatches and actMatches
-end
 local achievementCategoryIds = {}
 do
     for categoryId, categoryInfo in pairs(QuestsInfo.Categories or {}) do
@@ -1339,47 +1252,6 @@ local function normalizeAutoSummonUnits(selectedUnits)
     return normalized
 end
 appConfig.autoSummonUnits = normalizeAutoSummonUnits(appConfig.autoSummonUnits)
-local function unitHasDBZCategory(assetId)
-    local info = UnitsInfo[tostring(assetId)]
-    if type(info) ~= "table" then return false end
-    if info.DBZCategory == true then return true end
-    local tagGroups = {info.Tags, info.Tag, info.Categories, type(info.UpgradeInfo) == "table" and type(info.UpgradeInfo[0]) == "table" and info.UpgradeInfo[0].Tags or nil}
-    for _, tags in pairs(tagGroups) do
-        if type(tags) == "table" then
-            if tags.DBZCategory == true then return true end
-            for _, tag in pairs(tags) do
-                if tostring(tag) == "DBZCategory" then return true end
-            end
-        end
-    end
-    return false
-end
-local function getWishUnitOptions()
-    local options, labelToId, idToLabel = {"Không chọn"}, {}, {}
-    local playerData = EventAuto:GetPlayerData()
-    local unitData = playerData and EventAuto:Peek(playerData.UnitData) or nil
-    for id, rawUnit in pairs(type(unitData) == "table" and unitData or {}) do
-        local unit = EventAuto:Peek(rawUnit)
-        if type(unit) == "table" then
-            local asset = tostring(EventAuto:Peek(unit.Asset) or "")
-            local trait = tostring(EventAuto:Peek(unit.Trait) or "")
-            if asset ~= "" and trait ~= "Unbound" and unitHasDBZCategory(asset) then
-                local info = UnitsInfo[asset] or {}
-                local name = tostring(info.Name or info.DisplayName or asset)
-                local label = string.format("%s | %s | %s", name, trait ~= "" and trait or "No Trait", tostring(id))
-                table.insert(options, label)
-                labelToId[label] = tostring(id)
-                idToLabel[tostring(id)] = label
-            end
-        end
-    end
-    table.sort(options, function(left, right)
-        if left == "Không chọn" then return true end
-        if right == "Không chọn" then return false end
-        return left < right
-    end)
-    return options, labelToId, idToLabel
-end
 local allShops = {}
 local function extractShopItems(shopNode, dataKey, shopKey)
     if type(shopNode) == "table" then
@@ -1738,11 +1610,6 @@ local function getCurrentStageKey(stateInfo, previousStateInfo)
         mapName = tostring(questTarget.Map or "")
         if actName == "" or actName == "nil" then actName = tostring(questTarget.Act or "") end
     end
-    local eventTarget = EventAuto.Runtime.ActiveTarget
-    if (mapName == "" or mapName == "nil") and type(eventTarget) == "table" and eventTarget.Mode == stateInfo.Gamemode then
-        mapName = tostring(eventTarget.Map or "")
-        if actName == "" or actName == "nil" then actName = tostring(eventTarget.Act or "") end
-    end
     local challengeTarget = appConfig.autoChallengeEnabled and appConfig.challengeActiveTarget or nil
     if (mapName == "" or mapName == "nil") and type(challengeTarget) == "table" and challengeTarget.Mode == stateInfo.Gamemode then
         mapName = tostring(challengeTarget.Map or "")
@@ -1806,24 +1673,15 @@ local function automationMacroPlaybackEnabled(stateInfo)
             if ok and hasUnplacedHelper then return false end
         end
     end
-    local eventOwned = EventAuto:TargetMatchesState(stateInfo)
     local questOwned = QuestAuto:TargetMatchesState(stateInfo)
     local challengeOwned = challengeTargetMatchesState(stateInfo)
-    local ownedTarget = eventOwned and EventAuto.Runtime.ActiveTarget
-        or (questOwned and appConfig.QuestAuto.ActiveTarget)
+    local ownedTarget = (questOwned and appConfig.QuestAuto.ActiveTarget)
         or (challengeOwned and appConfig.challengeActiveTarget)
     local restartPhase = type(ownedTarget) == "table" and ownedTarget.MacroRestartPhase or nil
     if restartPhase and restartPhase ~= "Ready" and restartPhase ~= "Failed" then return false end
-    return appConfig.autoPlayEnabled or eventOwned or questOwned or challengeOwned
+    return appConfig.autoPlayEnabled or questOwned or challengeOwned
 end
 local function getMacroListForStage(stageKey, stateInfo)
-    local eventTarget = EventAuto:TargetMatchesState(stateInfo) and EventAuto.Runtime.ActiveTarget or nil
-    if type(eventTarget) == "table" and eventTarget.MacroKey then
-        local eventMacro = appConfig.Macros[tostring(eventTarget.MacroKey)]
-        if type(eventMacro) == "table" then
-            return eventMacro, tostring(eventTarget.MacroKey)
-        end
-    end
     local questTarget = QuestAuto:TargetMatchesState(stateInfo) and appConfig.QuestAuto.ActiveTarget or nil
     if type(questTarget) == "table" and questTarget.MacroKey then
         local questMacro = appConfig.Macros[tostring(questTarget.MacroKey)]
@@ -1838,7 +1696,7 @@ local function getMacroListForStage(stageKey, stateInfo)
             return challengeMacro, tostring(challengeTarget.MacroKey)
         end
     end
-    if not eventTarget and not questTarget and not challengeTarget and type(stateInfo) == "table" and stateInfo.Gamemode == "Story" then
+    if not questTarget and not challengeTarget and type(stateInfo) == "table" and stateInfo.Gamemode == "Story" then
         local requestedKey = appConfig.storyMapMacros[tostring(stateInfo.Map or "")]
         if not requestedKey then
             local normalizedStage = normalizeStageKey(stageKey)
@@ -2339,6 +2197,279 @@ local function safeSetParagraphDesc(paragraph, description)
     end
     return ok
 end
+local FishingAuto = {
+    Runtime = {
+        Status = "Auto Câu Cá đang tắt.",
+        LastCastAt = 0,
+        LastEquipAt = 0,
+        LastTeleportAt = 0,
+        ResultHandled = false,
+        ReelingSince = nil,
+        EquippedByAuto = false,
+    },
+}
+function FishingAuto:SetStatus(status)
+    status = tostring(status)
+    if self.Runtime.Status == status then return end
+    self.Runtime.Status = status
+    safeSetParagraphDesc(self.StatusParagraph, localizeText(status))
+end
+function FishingAuto:GetNodeValue(node)
+    local ok, value = pcall(function() return node:Get() end)
+    if not ok then ok, value = pcall(function() return node:get() end) end
+    return ok and value or nil
+end
+function FishingAuto:InstallMinigameSkip()
+    local node = FishingNodes.FISHING_START_MINIGAME
+    local callbacks = type(node) == "table" and rawget(node, "_signalCallbacks") or nil
+    if type(callbacks) ~= "table" then return false end
+    local hookState = getgenv().AnimeExpeditionsFishingPromptHook
+    if type(hookState) == "table" and hookState.Node == node and hookState.Version == 2 and hookState.Wrapper then
+        for _, callback in pairs(callbacks) do
+            if callback == hookState.Wrapper then return true end
+        end
+    end
+    local original, callbackKey
+    if type(hookState) == "table" and hookState.Node == node and type(hookState.Original) == "function" then
+        for key, callback in pairs(callbacks) do
+            if callback == hookState.Wrapper then
+                original, callbackKey = hookState.Original, key
+                break
+            end
+        end
+    end
+    hookState = {Node = node, Version = 2}
+    getgenv().AnimeExpeditionsFishingPromptHook = hookState
+    for key, original in pairs(callbacks) do
+        if callbackKey then break end
+        if type(original) == "function" then callbackKey = key break end
+    end
+    original = original or (callbackKey and callbacks[callbackKey])
+    if type(original) ~= "function" or callbackKey == nil then return false end
+    hookState.Original = original
+    hookState.Wrapper = function(parameters, onResult, ...)
+        if getgenv().AnimeExpeditionsAutoFishingEnabled then
+            if type(onResult) == "function" then task.delay(5, onResult, true) end
+            return
+        end
+        return original(parameters, onResult, ...)
+    end
+    callbacks[callbackKey] = hookState.Wrapper
+    return true
+end
+function FishingAuto:HasRod()
+    local ok, rods = pcall(function()
+        return FishingNodes.GET_DATA_VALUE:InvokeSelf({"FishingRodData"})
+    end)
+    return ok and type(rods) == "table" and next(rods) ~= nil
+end
+function FishingAuto:ClosestPoint(part, position, inset)
+    local half = part.Size * 0.5
+    local localPosition = part.CFrame:PointToObjectSpace(position)
+    local insetX = math.min(tonumber(inset) or 0, math.max(0, half.X - 0.1))
+    local insetZ = math.min(tonumber(inset) or 0, math.max(0, half.Z - 0.1))
+    return part.CFrame:PointToWorldSpace(Vector3.new(
+        math.clamp(localPosition.X, -half.X + insetX, half.X - insetX),
+        half.Y,
+        math.clamp(localPosition.Z, -half.Z + insetZ, half.Z - insetZ)
+    ))
+end
+function FishingAuto:FindShore()
+    local character = LocalPlayer.Character
+    local root = character and character:FindFirstChild("HumanoidRootPart")
+    if not root then return nil end
+    local waters = CollectionService:GetTagged("Water")
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+    local excluded = table.clone(waters)
+    table.insert(excluded, character)
+    raycastParams.FilterDescendantsInstances = excluded
+    local best
+    for _, water in ipairs(waters) do
+        if water:IsA("BasePart") and water:IsDescendantOf(workspace) then
+            local half = water.Size * 0.5
+            local candidates = {
+                Vector3.new(half.X + 4, half.Y + 30, 0),
+                Vector3.new(-half.X - 4, half.Y + 30, 0),
+                Vector3.new(0, half.Y + 30, half.Z + 4),
+                Vector3.new(0, half.Y + 30, -half.Z - 4),
+            }
+            for _, localCandidate in ipairs(candidates) do
+                local origin = water.CFrame:PointToWorldSpace(localCandidate)
+                local hit = workspace:Raycast(origin, Vector3.new(0, -80, 0), raycastParams)
+                if hit then
+                    local destination = hit.Position + Vector3.new(0, 3.5, 0)
+                    local castPosition = self:ClosestPoint(water, destination, 3)
+                    local distance = (destination - root.Position).Magnitude
+                    if not best or distance < best.Distance then
+                        best = {Water = water, Destination = destination, CastPosition = castPosition, Distance = distance}
+                    end
+                end
+            end
+        end
+    end
+    return best
+end
+function FishingAuto:GetNearbyCastPosition()
+    local character = LocalPlayer.Character
+    local root = character and character:FindFirstChild("HumanoidRootPart")
+    if not root then return nil end
+    local ok, nearWater, waters = pcall(function()
+        return ItemUtils:IsPlayerNearWater(LocalPlayer)
+    end)
+    if not ok or not nearWater or type(waters) ~= "table" then return nil end
+    local nearest, nearestDistance
+    for _, water in ipairs(waters) do
+        if water:IsA("BasePart") then
+            local castPosition = self:ClosestPoint(water, root.Position, 3)
+            local distance = (castPosition - root.Position).Magnitude
+            if not nearestDistance or distance < nearestDistance then
+                nearest = castPosition
+                nearestDistance = distance
+            end
+        end
+    end
+    return nearest
+end
+function FishingAuto:Tick()
+    self:InstallMinigameSkip()
+    local coordinator = getgenv().AnimeExpeditionsCoordinator
+    if getgenv().AnimeExpeditionsMapSwitchPending
+        or coordinator and (coordinator.MapSwitch or coordinator:HasMandatory()) then
+        self:SetStatus("Auto Fishing đang chờ Lobby Maintenance hoàn tất.")
+        return
+    end
+    if not self:HasRod() then
+        self:SetStatus("Không tìm thấy cần câu trong kho.")
+        return
+    end
+    local character = LocalPlayer.Character
+    local root = character and character:FindFirstChild("HumanoidRootPart")
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    if not root or not humanoid or humanoid.Health <= 0 then return end
+    local castPosition = self:GetNearbyCastPosition()
+    if not castPosition then
+        if tick() - self.Runtime.LastTeleportAt < 3 then return end
+        local shore = self:FindShore()
+        if not shore then
+            self:SetStatus("Không tìm thấy water zone hợp lệ.")
+            return
+        end
+        self.Runtime.LastTeleportAt = tick()
+        self:SetStatus("Đang teleport tới bờ hồ...")
+        root.CFrame = CFrame.lookAt(
+            shore.Destination,
+            Vector3.new(shore.CastPosition.X, shore.Destination.Y, shore.CastPosition.Z)
+        )
+        root.AssemblyLinearVelocity = Vector3.zero
+        root.AssemblyAngularVelocity = Vector3.zero
+        return
+    end
+    local stage = self:GetNodeValue(FishingNodes.CLIENT_FISHING_STATE)
+    if stage == "Reeling" then
+        self.Runtime.ReelingSince = self.Runtime.ReelingSince or tick()
+        self:SetStatus("Đang kéo cá và hoàn thành minigame...")
+        if not self.Runtime.ResultHandled and tick() - self.Runtime.ReelingSince >= 6 then
+            self.Runtime.ResultHandled = true
+            FishingNodes.FISHING_RESULT:FireServer(true)
+        end
+        return
+    end
+    self.Runtime.ResultHandled = false
+    self.Runtime.ReelingSince = nil
+    if stage == "Waiting" then
+        self:SetStatus("Đang chờ cá cắn câu...")
+        return
+    end
+    if self:GetNodeValue(FishingNodes.FISHING_ACTIVE) ~= true then
+        if tick() - self.Runtime.LastEquipAt >= 2 then
+            self.Runtime.LastEquipAt = tick()
+            self.Runtime.EquippedByAuto = true
+            self:SetStatus("Đang equip cần câu...")
+            FishingNodes.FISHING_TOGGLE_ROD:FireSelf()
+        end
+        return
+    end
+    if stage ~= nil and stage ~= "Idle" then return end
+    if tick() - self.Runtime.LastCastAt >= 2 then
+        self.Runtime.LastCastAt = tick()
+        self:SetStatus("Đang thả câu...")
+        FishingNodes.FISH_CAST_REEL:FireServer(castPosition, 1)
+    end
+end
+FishingAuto.StatusParagraph = Tabs.Event:AddParagraph({
+    Title = "Câu Cá Summer Event",
+    Content = localizeText(FishingAuto.Runtime.Status),
+})
+getgenv().AnimeExpeditionsAutoFishingEnabled = appConfig.autoFishingEnabled
+FishingAuto:InstallMinigameSkip()
+Tabs.Event:AddToggle("ToggleAutoFishing", {
+    Title = "Bật Auto Câu Cá",
+    Description = "Tự teleport đến bờ hồ gần nhất, equip cần câu, cast và hoàn thành minigame.",
+    Default = appConfig.autoFishingEnabled,
+}):OnChanged(function(value)
+    appConfig.autoFishingEnabled = value == true
+    getgenv().AnimeExpeditionsAutoFishingEnabled = appConfig.autoFishingEnabled
+    FishingAuto.Runtime.ResultHandled = false
+    if not value then FishingAuto:SetStatus("Auto Câu Cá đang tắt.") end
+    saveConfig()
+end)
+Tabs.Event:AddToggle("ToggleSummerHotbar", {
+    Title = "Auto Summer Siege Hotbar",
+    Description = "Sau khi Macro xong: đặt MockUnit ngẫu nhiên gần đường quái, tạo phantom khi thiếu Yen, dùng Fish và Tome ở Summer Siege.",
+    Default = appConfig.summerHotbarEnabled,
+}):OnChanged(function(value)
+    appConfig.summerHotbarEnabled = value == true
+    saveConfig()
+end)
+local function summerFishCloneOptions()
+    local options = {"Random"}
+    local seen = {Random = true}
+    local okUnits, unitsModule = pcall(function() return require(SharedInfo:WaitForChild("Units")) end)
+    local unitsData = okUnits and type(unitsModule) == "table" and unitsModule or {}
+    for asset, info in pairs(unitsData) do
+        if type(asset) == "string" and type(info) == "table" and not info.Hidden and not seen[asset] then
+            seen[asset] = true
+            table.insert(options, asset)
+        end
+    end
+    table.sort(options, function(a, b)
+        if a == "Random" then return true end
+        if b == "Random" then return false end
+        return a:lower() < b:lower()
+    end)
+    return options
+end
+local summerFishCloneDefault = appConfig.summerFishCloneTarget
+do
+    local opts = summerFishCloneOptions()
+    local found = false
+    for _, opt in ipairs(opts) do if opt == summerFishCloneDefault then found = true break end end
+    if not found then summerFishCloneDefault = "Random" appConfig.summerFishCloneTarget = "Random" saveConfig() end
+end
+Tabs.Event:AddDropdown("SummerFishCloneTarget", {
+    Title = "Mirror Fish (Fish4) - Unit cần clone",
+    Description = "Chọn unit để Fish4 clone. Nếu unit chưa đặt thì sẽ chọn random unit đã đặt.",
+    Values = summerFishCloneOptions(),
+    Multi = false,
+    Default = summerFishCloneDefault,
+}):OnChanged(function(value)
+    local selected = type(value) == "string" and value ~= "" and value or "Random"
+    appConfig.summerFishCloneTarget = selected
+    saveConfig()
+end)
+task.spawn(function()
+    while expeditionScriptIsCurrent() and task.wait(0.25) do
+        if appConfig.autoFishingEnabled then
+            local ok, err = xpcall(function() FishingAuto:Tick() end, debug.traceback)
+            if not ok then
+                FishingAuto:SetStatus("Auto Fishing error; xem console để biết chi tiết.")
+                warn("[AUTO FISHING] " .. tostring(err))
+                task.wait(2)
+            end
+        end
+    end
+end)
 task.wait()
 Tabs.Lobby:AddParagraph({ Title = "Thông Tin", Content = "Tự động nhận quà và nhiệm vụ ngầm." })
 Tabs.Lobby:AddToggle("ToggleQuest", {Title = "Auto Claim Quests & Events", Default = appConfig.autoClaimQuests}):OnChanged(function(v) appConfig.autoClaimQuests = v; saveConfig() end)
@@ -2394,163 +2525,6 @@ end)
 Tabs.Summon:AddDropdown("DropAmount", {Title = "Summon Amount", Values = {"1", "10", "50", "Max"}, Multi = false, Default = tostring(appConfig.autoSummonAmount) == "Max" and 4 or (tostring(appConfig.autoSummonAmount) == "50" and 3 or (tostring(appConfig.autoSummonAmount) == "10" and 2 or 1))}):OnChanged(function(Value) appConfig.autoSummonAmount = Value == "Max" and "Max" or (tonumber(Value) or 1); saveConfig() end)
 Tabs.Summon:AddToggle("ToggleSummon", {Title = "Bật Auto Summon (Snipe)", Default = appConfig.autoSummonEnabled}):OnChanged(function(v) appConfig.autoSummonEnabled = v; saveConfig() end)
 end
-task.wait()
-EventAuto.StatusParagraph = Tabs.Event:AddParagraph({
-    Title = "Event Priority",
-    Content = "Guess That Unit > Boss Bounty > Dragon's Wish > Quest > Challenge > AutoJoin",
-})
-Tabs.Event:AddToggle("AutoGuessUnit", {
-    Title = "Auto Guess That Unit",
-    Description = "Tự hoàn thành các difficulty đã chọn mỗi ngày.",
-    Default = appConfig.EventAuto.autoGuessUnit,
-}):OnChanged(function(value) appConfig.EventAuto.autoGuessUnit = value; EventAuto.Runtime.Pending = nil; saveConfig() end)
-Tabs.Event:AddDropdown("GuessUnitDifficulties", {
-    Title = "Guess difficulties",
-    Values = {"Normal", "Hard"},
-    Multi = true,
-    Default = multiDropdownDefaults(appConfig.EventAuto.guessDifficulties),
-}):OnChanged(function(value)
-    local selected = {}
-    for key, enabled in pairs(value or {}) do
-        local difficulty = type(key) == "number" and enabled or (enabled and key or nil)
-        if difficulty == "Normal" or difficulty == "Hard" then table.insert(selected, difficulty) end
-    end
-    appConfig.EventAuto.guessDifficulties = selected
-    EventAuto.Runtime.Pending = nil
-    saveConfig()
-end)
-Tabs.Event:AddToggle("AutoBossBounty", {
-    Title = "Auto Boss Bounty",
-    Description = "Roll và đánh tối đa 5 Boss Bounty mỗi ngày.",
-    Default = appConfig.EventAuto.autoBossBounty,
-}):OnChanged(function(value) appConfig.EventAuto.autoBossBounty = value; EventAuto.Runtime.ActiveTarget = nil; EventAuto.Runtime.Pending = nil; saveConfig() end)
-Tabs.Event:AddToggle("AutoBossBountyReroll", {
-    Title = "Auto Reroll Boss Bounty",
-    Description = "Tốn 5.000 Gold nếu rarity hiện tại không nằm trong danh sách giữ.",
-    Default = appConfig.EventAuto.bossBountyAutoReroll,
-}):OnChanged(function(value) appConfig.EventAuto.bossBountyAutoReroll = value; saveConfig() end)
-Tabs.Event:AddDropdown("BossBountyKeepRarities", {
-    Title = "Boss rarity muốn giữ",
-    Values = {"Rare", "Legendary", "Secret"},
-    Multi = true,
-    Default = multiDropdownDefaults(appConfig.EventAuto.bossBountyKeepRarities),
-}):OnChanged(function(value)
-    local selected = {}
-    for key, enabled in pairs(value or {}) do
-        local rarity = type(key) == "number" and enabled or (enabled and key or nil)
-        if rarity == "Rare" or rarity == "Legendary" or rarity == "Secret" then table.insert(selected, rarity) end
-    end
-    appConfig.EventAuto.bossBountyKeepRarities = selected
-    saveConfig()
-end)
-Tabs.Event:AddToggle("AutoDragonWish", {
-    Title = "Auto Dragon's Wish",
-    Description = "Đọc quest ShenronEvent runtime, tự claim và chạy objective được hỗ trợ.",
-    Default = appConfig.EventAuto.autoDragonWish,
-}):OnChanged(function(value) appConfig.EventAuto.autoDragonWish = value; EventAuto.Runtime.ActiveTarget = nil; EventAuto.Runtime.Pending = nil; saveConfig() end)
-Tabs.Event:AddToggle("AutoRedeemDragonWish", {
-    Title = "Auto Redeem Wish",
-    Description = "Mặc định tắt. Chỉ áp Unbound khi đã chọn UnitID DBZ hợp lệ.",
-    Default = appConfig.EventAuto.autoRedeemWish,
-}):OnChanged(function(value) appConfig.EventAuto.autoRedeemWish = value; EventAuto.Runtime.Pending = nil; saveConfig() end)
-do
-local options, labelToId, idToLabel = getWishUnitOptions()
-EventAuto.Runtime.WishUnitLabels = options
-EventAuto.Runtime.WishLabelToId = labelToId
-EventAuto.WishUnitDropdown = Tabs.Event:AddDropdown("DragonWishUnit", {
-    Title = "DBZ Unit nhận Unbound",
-    Values = options,
-    Multi = false,
-    Default = idToLabel[appConfig.EventAuto.wishUnitId] or "Không chọn",
-})
-EventAuto.WishUnitDropdown:OnChanged(function(value)
-    appConfig.EventAuto.wishUnitId = EventAuto.Runtime.WishLabelToId[tostring(value)]
-    saveConfig()
-end)
-Tabs.Event:AddButton({
-    Title = "Refresh DBZ Units",
-    Callback = function() EventAuto:RefreshWishUnits(true) end,
-})
-end
-local eventMacroMaps = {}
-do
-    local seen = {}
-    for _, modeName in ipairs({"Story", "Raid", "Mastery", "Infinite"}) do
-        for mapName in pairs((MapInfo.MapData and MapInfo.MapData[modeName]) or {}) do
-            mapName = tostring(mapName)
-            if not seen[mapName] then seen[mapName] = true; table.insert(eventMacroMaps, mapName) end
-        end
-    end
-    table.sort(eventMacroMaps)
-end
-local function addEventMapMacroDropdowns(title, description, configField, idPrefix, modes, owner)
-    Tabs.Event:AddParagraph({Title = title, Content = description})
-    for _, mapName in ipairs(eventMacroMaps) do
-        local macroChoices = {"Không chọn"}
-        for macroKey, macroData in pairs(appConfig.Macros) do
-            local normalizedMacroKey = normalizeStageKey(macroKey)
-            local belongsToMap = false
-            for _, modeName in ipairs(modes) do
-                local normalizedModeMap = normalizeStageKey(modeName .. "_" .. mapName)
-                local stageSuffix = normalizedMacroKey:sub(#normalizedModeMap + 1)
-                if normalizedMacroKey:sub(1, #normalizedModeMap) == normalizedModeMap
-                    and (stageSuffix == "" or stageSuffix:match("^%d+$") or stageSuffix:match("^act%d+$")) then
-                    belongsToMap = true
-                    break
-                end
-            end
-            if type(macroData) == "table" and #macroData > 0 and belongsToMap then table.insert(macroChoices, tostring(macroKey)) end
-        end
-        table.sort(macroChoices, function(left, right)
-            if left == right then return false end
-            if left == "Không chọn" then return true end
-            if right == "Không chọn" then return false end
-            return left < right
-        end)
-        local selectedMacro = appConfig.EventAuto[configField][mapName]
-        if selectedMacro and not table.find(macroChoices, selectedMacro) then
-            local normalizedSelected = normalizeStageKey(selectedMacro)
-            for _, choice in ipairs(macroChoices) do
-                if normalizeStageKey(choice) == normalizedSelected then
-                    selectedMacro = choice
-                    appConfig.EventAuto[configField][mapName] = choice
-                    break
-                end
-            end
-            if not table.find(macroChoices, selectedMacro) and appConfig.Macros[selectedMacro] then table.insert(macroChoices, selectedMacro) end
-        end
-        Tabs.Event:AddDropdown(idPrefix .. mapName:gsub("[^%w%-_]", ""), {
-            Title = mapName,
-            Values = macroChoices,
-            Multi = false,
-            Default = selectedMacro or "Không chọn",
-        }):OnChanged(function(value)
-            appConfig.EventAuto[configField][mapName] = value ~= "Không chọn" and value or nil
-            local stateInfo = getGameStates()
-            local target = EventAuto.Runtime.ActiveTarget
-            if (not stateInfo or stateInfo.CurrentGameState == "Lobby") and type(target) == "table" and target.Owner == owner then
-                EventAuto.Runtime.ActiveTarget = nil
-            end
-            saveConfig()
-        end)
-    end
-end
-addEventMapMacroDropdowns(
-    "Boss Bounty - Macro Theo Map",
-    "Mỗi map chọn Macro riêng chỉ dùng khi Boss Bounty điều khiển trận.",
-    "bossBountyMapMacros",
-    "BossBountyMapMacro_",
-    {"Story", "Raid", "Mastery", "Infinite", "Challenge"},
-    "BossBounty"
-)
-addEventMapMacroDropdowns(
-    "Dragon Wish - Macro Theo Map",
-    "Mỗi map chọn Macro riêng chỉ dùng khi Dragon Wish chạy objective.",
-    "dragonWishMapMacros",
-    "DragonWishMapMacro_",
-    {"Story", "Raid", "Mastery", "Infinite", "Challenge"},
-    "DragonWish"
-)
 task.wait()
 QuestAuto.StatusParagraph = Tabs.Quest:AddParagraph({
     Title = "Daily + Weekly Quest",
@@ -3286,7 +3260,7 @@ TogglePlay:OnChanged(function(state)
     saveConfig()
     if not state then
         local currentState = getGameStates()
-        if not EventAuto:TargetMatchesState(currentState) and not QuestAuto:TargetMatchesState(currentState) and not challengeTargetMatchesState(currentState) then isPlaying = false end
+        if not QuestAuto:TargetMatchesState(currentState) and not challengeTargetMatchesState(currentState) then isPlaying = false end
     else
         isRecording = false
         getgenv().PendingRecord = false
@@ -3896,12 +3870,15 @@ Tabs.Settings:AddInput("FPSCap", {
 local fixLagState = {
     lighting = nil,
     parts = {},
-    decals = {}
+    decals = {},
+    conn = nil,
+    renderingDisabled = false
 }
 local function SetFixLagEnabled(enabled)
     local lighting = game:GetService("Lighting")
+    local RunService = game:GetService("RunService")
     if enabled then
-        for _, settingName in ipairs({"OwnUnitVFXEnabled", "AbilityVFXEnabled", "UnitAuraEnabled", "TraitAuraEnabled", "BuffIndicatorsEnabled", "DamageIndicatorsEnabled"}) do
+        for _, settingName in ipairs({"OwnUnitVFXEnabled", "AbilityVFXEnabled", "UnitAuraEnabled", "TraitAuraEnabled", "BuffIndicatorsEnabled", "DamageIndicatorsEnabled", "OtherUnitsEnabled", "OtherUnitVFXEnabled", "OwnUnitVFXEnabled", "AbilityVFXEnabled"}) do
             local ok, value = pcall(Actions.GetSettingValue, settingName)
             if ok and value == true then pcall(Actions.ChangeSetting, settingName, false) end
         end
@@ -3909,32 +3886,122 @@ local function SetFixLagEnabled(enabled)
             fixLagState.lighting = {
                 GlobalShadows = lighting.GlobalShadows,
                 FogEnd = lighting.FogEnd,
+                Brightness = lighting.Brightness,
+                ExposureCompensation = lighting.ExposureCompensation,
             }
-        end
-        for _, v in ipairs(workspace:GetDescendants()) do
-            if v:IsA("BasePart") then
-                if not fixLagState.parts[v] then
-                    fixLagState.parts[v] = {
-                        Material = v.Material,
-                        Color = v.Color,
-                    }
-                end
-                v.Material = Enum.Material.SmoothPlastic
-                v.Color = Color3.new(0.5, 0.5, 0.5)
-            elseif v:IsA("Texture") or v:IsA("Decal") then
-                if not fixLagState.decals[v] then
-                    fixLagState.decals[v] = v.Transparency
-                end
-                v.Transparency = 1
-            end
         end
         lighting.GlobalShadows = false
         lighting.FogEnd = 9e9
+        lighting.Brightness = 1
+        pcall(function() RunService:Set3dRenderingEnabled(false) end)
+        fixLagState.renderingDisabled = true
+        local CollectionService = game:GetService("CollectionService")
+        local PlayersFolder = workspace:FindFirstChild("Players")
+        local UnitsFolder = workspace:FindFirstChild("Units")
+        local EnemiesFolder = workspace:FindFirstChild("Enemies")
+        local FollowersFolder = workspace:FindFirstChild("UnitFollowers")
+        local function shouldKeep(inst)
+            if not inst or not inst.Parent then return false end
+            if PlayersFolder and inst:IsDescendantOf(PlayersFolder) then return true end
+            if inst:IsDescendantOf(LocalPlayer.Character) then return true end
+            if inst:FindFirstAncestorWhichIsA("Model") and inst:FindFirstAncestorWhichIsA("Model"):FindFirstChildOfClass("Humanoid") and inst:IsDescendantOf(workspace) then
+                local mdl = inst:FindFirstAncestorWhichIsA("Model")
+                if mdl and mdl:FindFirstChild("HumanoidRootPart") and mdl.Parent == PlayersFolder then return true end
+            end
+            if UnitsFolder and inst:IsDescendantOf(UnitsFolder) then return true end
+            if EnemiesFolder and inst:IsDescendantOf(EnemiesFolder) then return true end
+            if FollowersFolder and inst:IsDescendantOf(FollowersFolder) then return true end
+            if inst == workspace.CurrentCamera then return true end
+            if inst:IsDescendantOf(workspace.Map.Paths) then return true end
+            if inst:IsDescendantOf(workspace.Map.Path) then return true end
+            if pcall(function() return CollectionService:HasTag(inst, "Water") end) and CollectionService:HasTag(inst, "Water") then return true end
+            if pcall(function() return CollectionService:HasTag(inst, "GroundPlacement") end) and CollectionService:HasTag(inst, "GroundPlacement") then return true end
+            if pcall(function() return CollectionService:HasTag(inst, "HillPlacement") end) and CollectionService:HasTag(inst, "HillPlacement") then return true end
+            if inst.Name == "Water" and inst:IsA("BasePart") then return true end
+            if inst.Name == "Ground" or inst.Name == "Union" then
+                if inst:IsDescendantOf(workspace.Map) then return true end
+            end
+            if inst.Name == "Paths" or inst.Name == "Path" or inst.Name == "Map" or inst.Name == "Placement" or inst.Name == "PhysicalPath" then return true end
+            return false
+        end
+        local function isStaticMapDecor(inst)
+            if shouldKeep(inst) then return false end
+            if UnitsFolder and inst:IsDescendantOf(UnitsFolder) then return false end
+            if EnemiesFolder and inst:IsDescendantOf(EnemiesFolder) then return false end
+            if inst:IsDescendantOf(workspace.Map) then return true end
+            if inst:IsA("Model") and inst.Parent == workspace.Map then return true end
+            return false
+        end
+        for _, v in ipairs(workspace:GetDescendants()) do
+            local isUnitOrEnemy = (UnitsFolder and v:IsDescendantOf(UnitsFolder)) or (EnemiesFolder and v:IsDescendantOf(EnemiesFolder))
+            if isUnitOrEnemy then
+                pcall(function()
+                    if v:IsA("BasePart") then v.Transparency=1 v.CanCollide=false v.CastShadow=false
+                    elseif v:IsA("ParticleEmitter") or v:IsA("Trail") or v:IsA("Beam") or v:IsA("Smoke") or v:IsA("Fire") then v.Enabled=false v:Destroy()
+                    elseif v:IsA("Decal") or v:IsA("Texture") or v:IsA("Highlight") or v:IsA("BillboardGui") then v:Destroy()
+                    elseif v:IsA("Model") then
+                        for _, p in ipairs(v:GetDescendants()) do if p:IsA("BasePart") then p.Transparency=1 p.CanCollide=false p.CastShadow=false end end
+                        for _, d in ipairs(v:GetDescendants()) do if d:IsA("ParticleEmitter") or d:IsA("Trail") or d:IsA("Beam") or d:IsA("Decal") or d:IsA("Texture") or d:IsA("Highlight") or d:IsA("BillboardGui") then pcall(function() d:Destroy() end) end end
+                    end
+                end)
+                continue
+            end
+            if shouldKeep(v) or shouldKeep(v.Parent) then continue end
+            pcall(function()
+                if v:IsA("ParticleEmitter") or v:IsA("Trail") or v:IsA("Beam") or v:IsA("Smoke") or v:IsA("Fire") or v:IsA("Sparkles") or v:IsA("PointLight") or v:IsA("SpotLight") or v:IsA("SurfaceLight") then
+                    v.Enabled = false
+                    v:Destroy()
+                elseif v:IsA("Model") then
+                    if isStaticMapDecor(v) then v:Destroy() else
+                        for _, d in ipairs(v:GetDescendants()) do
+                            if d:IsA("ParticleEmitter") or d:IsA("Trail") or d:IsA("Beam") then d.Enabled=false d:Destroy() end
+                            if d:IsA("Decal") or d:IsA("Texture") then d:Destroy() end
+                        end
+                        for _, p in ipairs(v:GetDescendants()) do if p:IsA("BasePart") then p.CastShadow=false end end
+                    end
+                elseif v:IsA("BasePart") then
+                    if isStaticMapDecor(v) then v:Destroy() else v.CastShadow=false v.Material=Enum.Material.SmoothPlastic end
+                elseif v:IsA("Decal") or v:IsA("Texture") then
+                    v:Destroy()
+                elseif v:IsA("MeshPart") or v:IsA("UnionOperation") then
+                    if isStaticMapDecor(v) then v:Destroy() end
+                end
+            end)
+        end
+        if fixLagState.conn then fixLagState.conn:Disconnect() end
+        fixLagState.conn = workspace.DescendantAdded:Connect(function(inst)
+            task.defer(function()
+                if not inst.Parent then return end
+                local isUnitOrEnemy = (UnitsFolder and inst:IsDescendantOf(UnitsFolder)) or (EnemiesFolder and inst:IsDescendantOf(EnemiesFolder))
+                if isUnitOrEnemy then
+                    pcall(function()
+                        if inst:IsA("BasePart") then inst.Transparency=1 inst.CanCollide=false inst.CastShadow=false
+                        elseif inst:IsA("ParticleEmitter") or inst:IsA("Trail") or inst:IsA("Beam") or inst:IsA("Smoke") or inst:IsA("Fire") then inst.Enabled=false inst:Destroy()
+                        elseif inst:IsA("Model") then for _, p in ipairs(inst:GetDescendants()) do if p:IsA("BasePart") then p.Transparency=1 p.CanCollide=false p.CastShadow=false end end end
+                    end)
+                    return
+                end
+                if shouldKeep(inst) then return end
+                pcall(function()
+                    if inst:IsA("ParticleEmitter") or inst:IsA("Trail") or inst:IsA("Beam") or inst:IsA("Smoke") or inst:IsA("Fire") then
+                        inst.Enabled=false inst:Destroy()
+                    elseif inst:IsA("Model") then
+                        if isStaticMapDecor(inst) then inst:Destroy() end
+                    elseif inst:IsA("BasePart") then
+                        if inst:GetAttribute("Water") or (pcall(function() return CollectionService:HasTag(inst,"Water") end) and CollectionService:HasTag(inst,"Water")) then return end
+                        if isStaticMapDecor(inst) then inst:Destroy() end
+                    end
+                end)
+            end)
+        end)
         return
     end
+    if fixLagState.conn then fixLagState.conn:Disconnect() fixLagState.conn = nil end
+    if fixLagState.renderingDisabled then pcall(function() RunService:Set3dRenderingEnabled(true) end) fixLagState.renderingDisabled = false end
     if fixLagState.lighting then
         lighting.GlobalShadows = fixLagState.lighting.GlobalShadows
         lighting.FogEnd = fixLagState.lighting.FogEnd
+        pcall(function() lighting.Brightness = fixLagState.lighting.Brightness end)
     end
     for obj, state in pairs(fixLagState.parts) do
         if obj and obj.Parent then
@@ -4770,13 +4837,8 @@ end
 getgenv().AnimeExpeditionsCoordinator.BuildMapSwitchLevelData = function(self, joinValue, owner)
     local parts = string.split(tostring(joinValue or ""), "|")
     if #parts < 2 then return nil end
-    if owner == "BossBounty" then
-        local target = EventAuto.Runtime.ActiveTarget
-        if type(target) == "table" and type(target.QueueData) == "table" then return table.clone(target.QueueData) end
-    end
     if parts[1] == "Challenge" then
-        local target = owner == "DragonWish" and EventAuto.Runtime.ActiveTarget
-            or (owner == "Quest" and appConfig.QuestAuto.ActiveTarget)
+        local target = (owner == "Quest" and appConfig.QuestAuto.ActiveTarget)
             or appConfig.challengeActiveTarget
         return {
             Gamemode = "Challenge",
@@ -4801,11 +4863,9 @@ end
 getgenv().AnimeExpeditionsCoordinator.BeginMapSwitchResolution = function(self, owner, reason, stateInfo)
     if not stateInfo or stateInfo.CurrentGameState == "Lobby" then return false end
     if owner == "AutoJoin" then
-        local eventTarget = EventAuto.Runtime.ActiveTarget
         local questTarget = appConfig.QuestAuto.Enabled and appConfig.QuestAuto.ActiveTarget or nil
         local challengeTarget = (appConfig.autoChallengeEnabled or appConfig.autoDailyChallengeEnabled) and appConfig.challengeActiveTarget or nil
-        if type(eventTarget) == "table" and (eventTarget.Owner == "BossBounty" or eventTarget.Owner == "DragonWish")
-            or type(questTarget) == "table" and questTarget.Owner == "Quest"
+        if type(questTarget) == "table" and questTarget.Owner == "Quest"
             or type(challengeTarget) == "table" and challengeTarget.Owner == "Challenge" then return false end
     end
     local currentState = tostring(stateInfo.CurrentGameState or "")
@@ -4915,14 +4975,13 @@ getgenv().AnimeExpeditionsCoordinator.StartMapSwitch = function(self, joinValue,
     switch.TargetMode = tostring(levelData.Gamemode or "")
     switch.TargetMap = tostring(levelData.MapName or "")
     switch.PreviousIncrement = tonumber(stateInfo and stateInfo.GameIncrement) or switch.PreviousIncrement
-    local target = (switch.Owner == "BossBounty" or switch.Owner == "DragonWish") and EventAuto.Runtime.ActiveTarget
-        or (switch.Owner == "Quest" and appConfig.QuestAuto.ActiveTarget)
+    local target = (switch.Owner == "Quest" and appConfig.QuestAuto.ActiveTarget)
         or (switch.Owner == "Challenge" and appConfig.challengeActiveTarget or nil)
     if type(target) == "table" then
         target.Owner = switch.Owner
         target.JoinIssuedAt = os.time()
         target.JoinValue = switch.JoinValue
-        if switch.Owner == "Quest" or switch.Owner == "BossBounty" or switch.Owner == "DragonWish" then
+        if switch.Owner == "Quest" then
             target.MatchesPlayedAtJoin = getSessionMatchesPlayed() or tonumber(stateInfo and stateInfo.SessionMatchesPlayed)
         end
         if switch.Owner == "Quest" or switch.Owner == "Challenge" then saveConfig() end
@@ -5512,7 +5571,7 @@ getgenv().AnimeExpeditionsCoordinator.ProcessMandatory = function(self, stateInf
     end
     return false
 end
-getgenv().AnimeExpeditionsCoordinator.BeforeAutomation = function(self, stateInfo, eventOwned, questOwned, challengeOwned)
+getgenv().AnimeExpeditionsCoordinator.BeforeAutomation = function(self, stateInfo, questOwned, challengeOwned)
     if self.Generation ~= getgenv().AnimeExpeditionsScriptGeneration then return false end
     self:UpdateFuelDisplay()
     self:UpdateBuildingResourceDisplay()
@@ -5588,14 +5647,14 @@ getgenv().AnimeExpeditionsCoordinator.BeforeAutomation = function(self, stateInf
     local trainingMandatory = self:GetMaintenance().Reasons.TrainingRotation == true
     local fuelMandatory = self:GetMaintenance().Reasons.ExpeditionFuel == true
     if trainingMandatory or fuelMandatory then
-        if eventOwned or questOwned or challengeOwned then return false end
+        if questOwned or challengeOwned then return false end
         self:RequestLobby("Maintenance", "Fuel/Training pending; Exit Immediately", stateInfo)
         return true
     end
-    if self:HasMandatory() and not eventOwned and not questOwned and not challengeOwned and not specialLifecycle then
+    if self:HasMandatory() and not questOwned and not challengeOwned and not specialLifecycle then
         self:RequestLobby("Maintenance", "Craft pending", stateInfo)
     end
-    return self:HasMandatory() and not eventOwned and not questOwned and not challengeOwned and not specialLifecycle
+    return self:HasMandatory() and not questOwned and not challengeOwned and not specialLifecycle
 end
 getgenv().AnimeExpeditionsCoordinator.GetTrainingProjection = function(self, unitData, assignedAt, trainingUpgrade)
     local expeditionInfo = Dependencies.Information.Expeditions
@@ -7461,587 +7520,6 @@ function QuestAuto:Tick(stateInfo)
     self:UpdateDisplay(snapshot)
     return directive
 end
-function EventAuto:SetStatus(status)
-    self.Runtime.Status = tostring(status or "")
-end
-function EventAuto:RefreshWishUnits(force)
-    if not force and tick() - (self.Runtime.LastWishRefreshAt or 0) < 5 then return end
-    self.Runtime.LastWishRefreshAt = tick()
-    local options, labelToId, idToLabel = getWishUnitOptions()
-    self.Runtime.WishUnitLabels = options
-    self.Runtime.WishLabelToId = labelToId
-    if appConfig.EventAuto.wishUnitId and not idToLabel[appConfig.EventAuto.wishUnitId] then
-        appConfig.EventAuto.wishUnitId = nil
-        saveConfig()
-    end
-    if self.WishUnitDropdown then
-        pcall(function()
-            self.WishUnitDropdown:SetValues(options)
-            self.WishUnitDropdown:SetValue(idToLabel[appConfig.EventAuto.wishUnitId] or "Không chọn")
-        end)
-    end
-end
-function EventAuto:UpdateDisplay(dragonSnapshot)
-    local lines = {self.Runtime.Status}
-    local target = self.Runtime.ActiveTarget
-    if type(target) == "table" then
-        table.insert(lines, string.format("Target: %s | %s %s %s", tostring(target.Owner), tostring(target.Mode), tostring(target.Map), tostring(target.Act or "")))
-    end
-    if type(dragonSnapshot) == "table" and dragonSnapshot.Valid then
-        table.insert(lines, string.format("Dragon's Wish: %d/%d claimed", dragonSnapshot.Claimed, dragonSnapshot.Total))
-        for _, quest in ipairs(dragonSnapshot.QuestArray) do
-            local objectives = {}
-            for _, objective in ipairs(quest.Objectives) do
-                table.insert(objectives, string.format("%s %d/%d [%s]", objective.Type, objective.Progress, objective.Goal, objective.Support))
-            end
-            local state = quest.Claimed and "Claimed" or (quest.Completed and "Claimable" or (quest.Unlocked and "In Progress" or "Locked"))
-            table.insert(lines, string.format("C%d %s [%s]: %s", quest.Chapter, quest.Name, state, table.concat(objectives, ", ")))
-        end
-    end
-    local description = table.concat(lines, "\n")
-    if description ~= self.Runtime.LastDisplay then
-        self.Runtime.LastDisplay = description
-        safeSetParagraphDesc(self.StatusParagraph, description)
-    end
-end
-function EventAuto:Condition(objective, conditionName)
-    for _, condition in pairs((objective and objective.Conditions) or {}) do
-        if condition.ValueName == conditionName then return condition.Value end
-    end
-    return objective and objective[conditionName] or nil
-end
-function EventAuto:ObjectiveSupport(objective)
-    local objectiveType = tostring(objective.Type or "Unknown")
-    local mode = tostring(self:Condition(objective, "Gamemode") or "")
-    if objectiveType == "GuessThatUnit" or objectiveType == "GuessUnit" then return appConfig.EventAuto.autoGuessUnit and "Supported" or "Needs Auto Guess" end
-    if objectiveType == "FinishMap" then
-        if mode == "" or mode == "Story" or mode == "Mastery" or mode == "Raid" then return "Supported" end
-        if mode == "Challenge" and tostring(self:Condition(objective, "ChallengeType") or "Regular") == "Regular" then return "Supported" end
-        return "Unsupported mode"
-    end
-    if objectiveType == "ClearWave" then return mode == "Infinite" and "Supported" or "Unsupported mode" end
-    if objectiveType == "Takedowns" then return (mode == "" or mode == "Story") and "Supported" or "Unsupported mode" end
-    if objectiveType == "Summon" then return "Supported" end
-    if objectiveType == "SpendAsset" then
-        local asset = tostring(self:Condition(objective, "AssetName") or "")
-        return (asset == "Gem" or asset == "Gold") and "Supported" or "Unsupported asset"
-    end
-    if objectiveType == "OwnAsset" or objectiveType == "ObtainAsset" then return "Passive" end
-    return "Unsupported"
-end
-function EventAuto:DragonSnapshot()
-    local result = {Valid = false, Total = 0, Claimed = 0, QuestArray = {}, Quests = {}}
-    local definitions = (QuestsInfo.Quests or {}).ShenronEvent
-    local playerData = self:GetPlayerData()
-    local categoryData = playerData and self:Peek((self:Peek(playerData.QuestData) or {}).ShenronEvent) or nil
-    local states = type(categoryData) == "table" and self:Peek(categoryData.Quests) or nil
-    if type(definitions) ~= "table" or type(states) ~= "table" then return result end
-    result.Valid = true
-    local eventInfo = EventsInfo.ShenronEvent
-    local update = tonumber((Dependencies.Information or {}).Update) or 1
-    for questId, info in pairs(definitions) do
-        local state = self:Peek(states[questId])
-        state = type(state) == "table" and state or {}
-        local chapter = tonumber(info.Chapter) or 1
-        local unlocked = state.Completed == true or state.Claimed == true
-        local unlockChecked = false
-        if not unlocked and type(eventInfo) == "table" and type(eventInfo.IsChapterUnlocked) == "function" then
-            local ok, value = pcall(function() return eventInfo:IsChapterUnlocked(chapter, os.time(), update) end)
-            unlockChecked = ok
-            unlocked = ok and value == true
-        end
-        if not unlockChecked and chapter == 1 then unlocked = true end
-        local quest = {
-            Id = tostring(questId),
-            Name = tostring(info.DisplayName or info.Name or questId),
-            Chapter = chapter,
-            Unlocked = unlocked,
-            Completed = self:Peek(state.Completed) == true,
-            Claimed = self:Peek(state.Claimed) == true,
-            Prerequisites = info.Prerequisites or {},
-            Objectives = {},
-        }
-        local progress = self:Peek(state.ObjectiveProgress)
-        progress = type(progress) == "table" and progress or {}
-        for objectiveId, objectiveInfo in pairs(info.Objectives or {}) do
-            table.insert(quest.Objectives, {
-                Id = tostring(objectiveId),
-                Type = tostring(objectiveInfo.Type or "Unknown"),
-                Info = objectiveInfo,
-                Goal = tonumber(objectiveInfo.Goal) or 1,
-                Progress = tonumber(self:Peek(progress[objectiveId] or progress[tostring(objectiveId)])) or 0,
-                Support = self:ObjectiveSupport(objectiveInfo),
-            })
-        end
-        table.sort(quest.Objectives, function(left, right) return left.Id < right.Id end)
-        result.Total += 1
-        if quest.Claimed then result.Claimed += 1 end
-        result.Quests[quest.Id] = quest
-        table.insert(result.QuestArray, quest)
-    end
-    table.sort(result.QuestArray, function(left, right)
-        if left.Chapter ~= right.Chapter then return left.Chapter < right.Chapter end
-        return left.Id < right.Id
-    end)
-    return result
-end
-function EventAuto:QuestAccessible(quest, snapshot)
-    if not quest.Unlocked then return false end
-    for _, prerequisite in pairs(quest.Prerequisites or {}) do
-        local required = snapshot.Quests[tostring(prerequisite)]
-        if required and not required.Claimed then return false end
-    end
-    return true
-end
-function EventAuto:Request(action, status, ...)
-    local args = table.pack(...)
-    self.Runtime.Pending = {Action = action, RequestedAt = tick(), Status = status}
-    local ok = pcall(function() Actions.SendEventRequest(args[1], action, table.unpack(args, 2, args.n)) end)
-    if not ok then self.Runtime.Pending = nil end
-    return ok
-end
-function EventAuto:PendingActive()
-    local pending = self.Runtime.Pending
-    if not pending then return false end
-    if tick() - pending.RequestedAt >= 3 then
-        self.Runtime.Pending = nil
-        return false
-    end
-    self:SetStatus(pending.Status)
-    return true
-end
-function EventAuto:RunGuess(stateInfo)
-    if not appConfig.EventAuto.autoGuessUnit or #appConfig.EventAuto.guessDifficulties == 0 then return false end
-    if type(self.Runtime.ActiveTarget) == "table" and self:TargetMatchesState(stateInfo) then return false end
-    if QuestAuto:TargetMatchesState(stateInfo) or challengeTargetMatchesState(stateInfo) then return false end
-    local eventData = self:GetEventData("GuessUnitEvent") or {}
-    local history = self:Peek(eventData.ClearHistory)
-    history = type(history) == "table" and history or {}
-    local resetKey = os.time() - os.time() % 86400
-    local nextDifficulty
-    local needsRetry = false
-    local gold = snapshotItemData().Gold or 0
-    for _, difficulty in ipairs(appConfig.EventAuto.guessDifficulties) do
-        local clear = self:Peek(history[difficulty])
-        clear = type(clear) == "table" and clear or {}
-        if tonumber(self:Peek(clear.ClearTime)) and tonumber(self:Peek(clear.ClearTime)) >= resetKey then
-            if self:Peek(clear.IsVictory) ~= true then
-                local retryCost = difficulty == "Hard" and 5000 or 2500
-                if gold >= retryCost then
-                    nextDifficulty, needsRetry = difficulty, true
-                    break
-                else
-                    self.Runtime.GuessSkippedForGold = difficulty
-                end
-            end
-        else
-            nextDifficulty = difficulty
-            break
-        end
-    end
-    if not nextDifficulty then
-        if self.Runtime.GuessSkippedForGold then self:SetStatus("Guess " .. self.Runtime.GuessSkippedForGold .. " đã thua nhưng không đủ Gold để Retry; đang nhường automation thấp hơn.") end
-        return false
-    end
-    self.Runtime.GuessSkippedForGold = nil
-    if stateInfo and stateInfo.CurrentGameState ~= "Lobby" then
-        self:SetStatus("Guess That Unit đang chờ về Lobby: " .. nextDifficulty)
-        local coordinator = getgenv().AnimeExpeditionsCoordinator
-        local currentState = tostring(stateInfo.CurrentGameState or "")
-        if coordinator and (currentState == "Finished" or currentState == "Victory" or currentState == "Defeat") then
-            coordinator:RequestLobby("GuessUnit", "Hoàn thành Guess That Unit", stateInfo)
-        end
-        return true
-    end
-    if self:PendingActive() then return true end
-    if needsRetry then
-        if self.Runtime.GuessRetryDifficulty == nextDifficulty and tick() >= (self.Runtime.GuessRetryReadyAt or 0) then
-            self.Runtime.GuessRetryDifficulty = nil
-            self.Runtime.GuessRetryReadyAt = nil
-            self:Request("GameResult", "Đang hoàn thành Guess " .. nextDifficulty .. " sau Retry...", "GuessUnitEvent", nextDifficulty, true)
-        else
-            self.Runtime.GuessRetryDifficulty = nextDifficulty
-            self.Runtime.GuessRetryReadyAt = tick() + 3
-            self:Request("Retry", "Đang Retry Guess " .. nextDifficulty .. "...", "GuessUnitEvent", nextDifficulty)
-        end
-    else
-        self.Runtime.GuessRetryDifficulty = nil
-        self.Runtime.GuessRetryReadyAt = nil
-        self:Request("GameResult", "Đang hoàn thành Guess " .. nextDifficulty .. "...", "GuessUnitEvent", nextDifficulty, true)
-    end
-    return true
-end
-function EventAuto:BossProgress()
-    local playerData = self:GetPlayerData() or {}
-    local trackCounter = self:Peek(playerData.TrackCounter)
-    local entry = type(trackCounter) == "table" and self:Peek(trackCounter.BossBountyEvent) or nil
-    return type(entry) == "table" and (tonumber(self:Peek(entry.Count)) or 0) or 0
-end
-function EventAuto:BossSignature(boss, queue)
-    local function fingerprint(value, seen)
-        if type(value) ~= "table" then return tostring(value) end
-        seen = seen or {}
-        if seen[value] then return "<cycle>" end
-        seen[value] = true
-        local keys = {}
-        for key in pairs(value) do table.insert(keys, tostring(key)) end
-        table.sort(keys)
-        local parts = {}
-        for _, key in ipairs(keys) do
-            local child = value[key]
-            if child == nil then child = value[tonumber(key)] end
-            table.insert(parts, key .. "=" .. fingerprint(child, seen))
-        end
-        seen[value] = nil
-        return "{" .. table.concat(parts, ",") .. "}"
-    end
-    return fingerprint({Boss = boss, QueueData = queue})
-end
-function EventAuto:GetMapMacro(configField, mapName)
-    local mapMacros = appConfig.EventAuto[configField]
-    local requestedKey = type(mapMacros) == "table" and mapMacros[tostring(mapName)] or nil
-    if not requestedKey or requestedKey == "" then return nil end
-    local macroList = appConfig.Macros[tostring(requestedKey)]
-    if type(macroList) == "table" and #macroList > 0 then return tostring(requestedKey) end
-    local normalizedRequested = normalizeStageKey(requestedKey)
-    for macroKey, candidate in pairs(appConfig.Macros) do
-        if normalizeStageKey(macroKey) == normalizedRequested and type(candidate) == "table" and #candidate > 0 then
-            return tostring(macroKey)
-        end
-    end
-    return nil
-end
-function EventAuto:RunBoss(stateInfo)
-    if not appConfig.EventAuto.autoBossBounty then
-        if type(self.Runtime.ActiveTarget) == "table" and self.Runtime.ActiveTarget.Owner == "BossBounty" then self.Runtime.ActiveTarget = nil end
-        return false
-    end
-    if QuestAuto:TargetMatchesState(stateInfo) or challengeTargetMatchesState(stateInfo) then return false end
-    local count = self:BossProgress()
-    if count >= 5 then
-        if type(self.Runtime.ActiveTarget) == "table" and self.Runtime.ActiveTarget.Owner == "BossBounty" then self.Runtime.ActiveTarget = nil end
-        return false
-    end
-    local eventData = self:GetEventData("BossBountyEvent") or {}
-    local boss = self:Peek(eventData.Boss)
-    local queue = self:Peek(eventData.QueueData)
-    if type(boss) ~= "table" or type(queue) ~= "table" then
-        local active = self.Runtime.ActiveTarget
-        if type(active) == "table" and active.Owner == "BossBounty" then
-            if count > (tonumber(active.CountBefore) or count) then
-                self.Runtime.LastCompletedBossSignature = active.Signature
-                self.Runtime.ActiveTarget = nil
-                self.Runtime.BossStalledSince = nil
-            else
-                self.Runtime.BossStalledSince = self.Runtime.BossStalledSince or tick()
-                if tick() - self.Runtime.BossStalledSince >= 15 then
-                    self.Runtime.ActiveTarget = nil
-                    self.Runtime.BossStalledSince = nil
-                    self:SetStatus("Boss Bounty chưa được server xác nhận sau 15s; đã nhường automation thấp hơn.")
-                    return false
-                end
-                self:SetStatus("Boss Bounty đang chờ TrackCounter xác nhận hoàn thành.")
-                local coordinator = getgenv().AnimeExpeditionsCoordinator
-                local currentState = stateInfo and tostring(stateInfo.CurrentGameState or "") or ""
-                if coordinator and (currentState == "Finished" or currentState == "Victory" or currentState == "Defeat") then
-                    coordinator:RequestLobby("BossBounty", "Chờ TrackCounter Boss Bounty", stateInfo)
-                end
-                return true
-            end
-        end
-        if stateInfo and stateInfo.CurrentGameState ~= "Lobby" then
-            self:SetStatus(string.format("Boss Bounty %d/5: chờ về Lobby để Roll.", count))
-            local coordinator = getgenv().AnimeExpeditionsCoordinator
-            if coordinator and (stateInfo.CurrentGameState == "Finished" or stateInfo.CurrentGameState == "Victory" or stateInfo.CurrentGameState == "Defeat") then
-                coordinator:RequestLobby("BossBounty", "Roll Boss Bounty tiếp theo", stateInfo)
-            end
-            return true
-        end
-        if not self:PendingActive() then self:Request("Roll", string.format("Đang Roll Boss Bounty %d/5...", count + 1), "BossBountyEvent") end
-        return true
-    end
-    local rarity = ({"Rare", "Legendary", "Secret"})[tonumber(self:Peek(boss.Difficulty)) or 1] or "Rare"
-    if appConfig.EventAuto.bossBountyAutoReroll and not table.find(appConfig.EventAuto.bossBountyKeepRarities, rarity) then
-        if stateInfo and stateInfo.CurrentGameState ~= "Lobby" then
-            self:SetStatus("Boss Bounty " .. rarity .. " đang chờ về Lobby để Reroll.")
-            return true
-        end
-        if (snapshotItemData().Gold or 0) < 5000 then
-            self:SetStatus("Boss Bounty cần 5.000 Gold để Reroll; đang giữ bounty hiện tại.")
-        elseif not self:PendingActive() then
-            self:Request("Reroll", "Đang Reroll Boss Bounty " .. rarity .. "...", "BossBountyEvent", rarity == "Secret")
-            return true
-        else
-            return true
-        end
-    end
-    local signature = self:BossSignature(boss, queue)
-    self.Runtime.BossStalledSince = nil
-    local target = self.Runtime.ActiveTarget
-    if self.Runtime.LastCompletedBossSignature == signature and (type(target) ~= "table" or target.Owner ~= "BossBounty") then
-        if stateInfo and stateInfo.CurrentGameState ~= "Lobby" then
-            self:SetStatus("Boss Bounty đã xác nhận; đang chờ về Lobby để Roll lượt tiếp theo.")
-            local coordinator = getgenv().AnimeExpeditionsCoordinator
-            if coordinator and (stateInfo.CurrentGameState == "Finished" or stateInfo.CurrentGameState == "Victory" or stateInfo.CurrentGameState == "Defeat") then
-                coordinator:RequestLobby("BossBounty", "Roll Boss Bounty tiếp theo", stateInfo)
-            end
-        elseif not self:PendingActive() then
-            self:Request("Roll", string.format("Đang Roll Boss Bounty %d/5...", count + 1), "BossBountyEvent")
-        end
-        return true
-    end
-    if self.Runtime.LastCompletedBossSignature and self.Runtime.LastCompletedBossSignature ~= signature then self.Runtime.LastCompletedBossSignature = nil end
-    if type(target) ~= "table" or target.Owner ~= "BossBounty" or target.Signature ~= signature then
-        local macroKey = self:GetMapMacro("bossBountyMapMacros", queue.MapName)
-        if not macroKey then
-            self.Runtime.ActiveTarget = nil
-            self:SetStatus(string.format("Boss Bounty %s %s %s chưa chọn Macro trong tab Event; nhường automation thấp hơn.", rarity, tostring(queue.MapName), tostring(queue.ActName)))
-            return false
-        end
-        target = {
-            Owner = "BossBounty", Mode = tostring(queue.Gamemode or "Story"), Map = tostring(queue.MapName or ""),
-            Act = tostring(queue.ActName or ""), Difficulty = tostring(queue.Difficulty or "Hard"), MacroKey = macroKey,
-            Signature = signature, CountBefore = count, QueueData = table.clone(queue),
-        }
-        self.Runtime.ActiveTarget = target
-    end
-        if self:TargetMatchesState(stateInfo) then
-        local currentState = tostring(stateInfo.CurrentGameState or "")
-            if currentState == "Finished" or currentState == "Victory" or currentState == "Defeat" then
-                self.Runtime.FinishedAt = self.Runtime.FinishedAt > 0 and self.Runtime.FinishedAt or tick()
-            if self:BossProgress() > (target.CountBefore or count) or self:BossSignature(self:Peek(eventData.Boss), self:Peek(eventData.QueueData)) ~= target.Signature then
-                self.Runtime.LastCompletedBossSignature = target.Signature
-                self.Runtime.ActiveTarget = nil
-                self.Runtime.FinishedAt = 0
-            elseif tick() - self.Runtime.FinishedAt >= 3 then
-                self.Runtime.BossStalledSince = self.Runtime.BossStalledSince or tick()
-                if tick() - self.Runtime.BossStalledSince >= 15 then
-                    self.Runtime.ActiveTarget = nil
-                    self.Runtime.BossStalledSince = nil
-                    self:SetStatus("Boss Bounty không cập nhật sau trận; đã nhường automation thấp hơn.")
-                    return false
-                end
-                self:SetStatus("Boss Bounty kết thúc; đang chờ server xác nhận.")
-            end
-        else
-            self.Runtime.FinishedAt = 0
-            self:SetStatus(string.format("Đang đánh Boss Bounty %s (%d/5) tại %s %s.", rarity, count + 1, target.Map, target.Act))
-        end
-        return true
-    end
-    local joinValue = table.concat({target.Mode, target.Map, target.Act, target.Difficulty}, "|")
-    self:SetStatus(string.format("Boss Bounty %s (%d/5): %s %s.", rarity, count + 1, target.Map, target.Act))
-    return true, joinValue, "BossBounty"
-end
-function EventAuto:ObjectiveComplete(snapshot, target)
-    local quest = snapshot.Quests[tostring(target.QuestId)]
-    if not quest then return true end
-    for _, objective in ipairs(quest.Objectives) do
-        if objective.Id == tostring(target.ObjectiveId) then return objective.Progress >= objective.Goal end
-    end
-    return quest.Completed or quest.Claimed
-end
-function EventAuto:GetTargetMacro(mode, mapName)
-    return self:GetMapMacro("dragonWishMapMacros", mapName)
-end
-function EventAuto:GetConfiguredDragonMap()
-    for _, mapName in ipairs(eventMacroMaps) do
-        local macroKey = self:GetTargetMacro(nil, mapName)
-        if macroKey then return mapName, macroKey end
-    end
-    return nil, nil
-end
-function EventAuto:BuildDragonTarget(snapshot)
-    for _, quest in ipairs(snapshot.QuestArray) do
-        if not quest.Completed and not quest.Claimed and self:QuestAccessible(quest, snapshot) then
-            for _, objective in ipairs(quest.Objectives) do
-                if objective.Progress < objective.Goal and objective.Support == "Supported" then
-                    local info = objective.Info
-                    local mode = tostring(self:Condition(info, "Gamemode") or "")
-                    if objective.Type == "ClearWave" then mode = "Infinite"
-                    elseif objective.Type == "Takedowns" and mode == "" then mode = "Story"
-                    elseif objective.Type == "FinishMap" and mode == "" then mode = "Story" end
-                    if objective.Type == "FinishMap" or objective.Type == "ClearWave" or objective.Type == "Takedowns" then
-                        if mode == "Challenge" then
-                            local challengeState = getRegularChallengeState()
-                            for _, challenge in ipairs(challengeState.Challenges or {}) do
-                                local macroKey = self:GetTargetMacro("Challenge", challenge.Map)
-                                if challenge.Available and challenge.AttemptsLeft > 0 and macroKey then
-                                    return {Owner = "DragonWish", Mode = "Challenge", ChallengeType = "Regular", Index = challenge.Index, Map = challenge.Map, Act = challenge.Act, Difficulty = challenge.Difficulty, MacroKey = macroKey, QuestId = quest.Id, ObjectiveId = objective.Id}
-                                end
-                            end
-                        else
-                            local map = self:Condition(info, "MapName")
-                            local macroKey = map and self:GetTargetMacro(mode, tostring(map)) or nil
-                            if not map then map, macroKey = self:GetConfiguredDragonMap() end
-                            if map and macroKey then
-                                return {Owner = "DragonWish", Mode = mode, Map = tostring(map), Act = tostring(self:Condition(info, "ActName") or "Act 1"), Difficulty = tostring(self:Condition(info, "Difficulty") or "Hard"), MacroKey = macroKey, TargetWave = objective.Type == "ClearWave" and math.max(0, objective.Goal - objective.Progress) or 0, QuestId = quest.Id, ObjectiveId = objective.Id}
-                            end
-                        end
-                    end
-                end
-            end
-        end
-    end
-    return nil
-end
-function EventAuto:TryDragonLobbyAction(snapshot)
-    if self:PendingActive() then return true end
-    for _, quest in ipairs(snapshot.QuestArray) do
-        if quest.Completed and not quest.Claimed and self:QuestAccessible(quest, snapshot) then
-            self.Runtime.Pending = {Action = "ClaimQuest", RequestedAt = tick(), Status = "Đang claim Dragon Wish / " .. quest.Name .. "..."}
-            local ok = pcall(function() Actions.ClaimQuest("ShenronEvent", quest.Id) end)
-            if not ok then self.Runtime.Pending = nil end
-            return true
-        end
-    end
-    local summonNeeded, goldNeeded = 0, 0
-    for _, quest in ipairs(snapshot.QuestArray) do
-        if not quest.Completed and not quest.Claimed and self:QuestAccessible(quest, snapshot) then
-            for _, objective in ipairs(quest.Objectives) do
-                local remaining = math.max(0, objective.Goal - objective.Progress)
-                if objective.Type == "Summon" then summonNeeded = math.max(summonNeeded, remaining) end
-                if objective.Type == "SpendAsset" and self:Condition(objective.Info, "AssetName") == "Gem" then summonNeeded = math.max(summonNeeded, math.ceil(remaining / 50)) end
-                if objective.Type == "SpendAsset" and self:Condition(objective.Info, "AssetName") == "Gold" then goldNeeded = math.max(goldNeeded, remaining) end
-            end
-        end
-    end
-    if goldNeeded > 0 then
-        for _, entry in ipairs(allShops) do
-            if entry.DataKey == "GoldShop" and entry.ShopKey == "GoldShop1" then
-                local maxAmount, itemIndex = getAutoShopPurchasableAmount(entry)
-                if maxAmount > 0 then
-                    self.Runtime.Pending = {Action = "SpendGold", RequestedAt = tick(), Status = "Đang dùng Gold cho Dragon Wish..."}
-                    pcall(function() Actions.ShopPurchaseItem(entry.DataKey, entry.ShopKey, itemIndex, 1) end)
-                    return true
-                end
-            end
-        end
-    end
-    if summonNeeded > 0 and (snapshotItemData().Gem or 0) >= 50 then
-        local amount = math.min(50, summonNeeded)
-        self.Runtime.Pending = {Action = "Summon", RequestedAt = tick(), Status = string.format("Đang Summon Standard x%d cho Dragon Wish...", amount)}
-        pcall(function() Actions.Summon("Standard", amount) end)
-        return true
-    end
-    return false
-end
-function EventAuto:WishUnitValid(unitId)
-    local playerData = self:GetPlayerData()
-    local units = playerData and self:Peek(playerData.UnitData) or nil
-    local unit = type(units) == "table" and self:Peek(units[tostring(unitId)]) or nil
-    if type(unit) ~= "table" then return false end
-    return tostring(self:Peek(unit.Trait) or "") ~= "Unbound" and unitHasDBZCategory(tostring(self:Peek(unit.Asset) or ""))
-end
-function EventAuto:RunDragon(stateInfo)
-    if not appConfig.EventAuto.autoDragonWish then
-        if type(self.Runtime.ActiveTarget) == "table" and self.Runtime.ActiveTarget.Owner == "DragonWish" then self.Runtime.ActiveTarget = nil end
-        return false, nil, nil, nil
-    end
-    if QuestAuto:TargetMatchesState(stateInfo) or challengeTargetMatchesState(stateInfo) then return false, nil, nil, nil end
-    local snapshot = self:DragonSnapshot()
-    if not snapshot.Valid then
-        self.Runtime.MissingSince.ShenronEvent = self.Runtime.MissingSince.ShenronEvent or tick()
-        if tick() - self.Runtime.MissingSince.ShenronEvent < 10 then
-            self:SetStatus("Đang chờ quest category ShenronEvent tải...")
-            return true, nil, nil, snapshot
-        end
-        if type(self.Runtime.ActiveTarget) == "table" and self.Runtime.ActiveTarget.Owner == "DragonWish" then self.Runtime.ActiveTarget = nil end
-        self:SetStatus("ShenronEvent chưa được server load; nhường automation thấp hơn.")
-        return false, nil, nil, snapshot
-    end
-    self.Runtime.MissingSince.ShenronEvent = nil
-    self:RefreshWishUnits(false)
-    local eventData = self:GetEventData("ShenronEvent") or {}
-    if snapshot.Total > 0 and snapshot.Claimed >= snapshot.Total then
-        self.Runtime.ActiveTarget = nil
-        if appConfig.EventAuto.autoRedeemWish and self:Peek(eventData.ClaimedWish) == nil and self:WishUnitValid(appConfig.EventAuto.wishUnitId) then
-            if not self:PendingActive() then self:Request("Wish", "Đang áp Unbound cho unit đã chọn...", "ShenronEvent", appConfig.EventAuto.wishUnitId) end
-            return true, nil, nil, snapshot
-        end
-        self:SetStatus(self:Peek(eventData.ClaimedWish) ~= nil and "Dragon's Wish đã redeem." or "Đã đủ 7 Orb; Auto Redeem đang tắt hoặc chưa chọn unit hợp lệ.")
-        return false, nil, nil, snapshot
-    end
-    local target = self.Runtime.ActiveTarget
-    if type(target) == "table" and target.Owner == "DragonWish" and self:ObjectiveComplete(snapshot, target) then
-        local targetWasActive = self:TargetMatchesState(stateInfo)
-        self.Runtime.ActiveTarget = nil
-        target = nil
-        if targetWasActive then
-            local coordinator = getgenv().AnimeExpeditionsCoordinator
-            if coordinator then coordinator:RequestLobby("DragonWish", "Objective Dragon Wish đã hoàn thành", stateInfo) end
-            return true, nil, nil, snapshot
-        end
-    end
-    if self:TargetMatchesState(stateInfo) then
-        local currentState = tostring(stateInfo.CurrentGameState or "")
-        if currentState == "Finished" or currentState == "Victory" or currentState == "Defeat" then
-            self.Runtime.FinishedAt = self.Runtime.FinishedAt > 0 and self.Runtime.FinishedAt or tick()
-            if tick() - self.Runtime.FinishedAt >= 2 then
-                local coordinator = getgenv().AnimeExpeditionsCoordinator
-                if coordinator then coordinator:RequestLobby("DragonWish", "Cập nhật tiến độ Dragon Wish", stateInfo) end
-            end
-        else
-            self.Runtime.FinishedAt = 0
-            if target.Mode == "Infinite" and (tonumber(stateInfo.Wave) or 0) >= math.min(math.max(1, tonumber(target.TargetWave) or 1), 50) then
-                local coordinator = getgenv().AnimeExpeditionsCoordinator
-                self:SetStatus("Dragon Wish Infinite đã đạt mốc; đang về Lobby để cập nhật tiến độ.")
-                if coordinator then coordinator:RequestLobby("DragonWish", "Cập nhật Infinite Wave Dragon Wish", stateInfo) end
-            else
-                self:SetStatus(string.format("Đang chạy Dragon Wish: %s %s %s.", tostring(target.Mode), tostring(target.Map), tostring(target.Act)))
-            end
-        end
-        return true, nil, nil, snapshot
-    end
-    if stateInfo and stateInfo.CurrentGameState ~= "Lobby" and not (getgenv().AnimeExpeditionsCoordinator and getgenv().AnimeExpeditionsCoordinator.MapSwitch) then
-        self:SetStatus("Dragon Wish đang chờ trận hiện tại kết thúc.")
-        return type(target) == "table", nil, nil, snapshot
-    end
-    if self:TryDragonLobbyAction(snapshot) then return true, nil, nil, snapshot end
-    if not target then
-        target = self:BuildDragonTarget(snapshot)
-        self.Runtime.ActiveTarget = target
-    end
-    if target then
-        local joinValue
-        if target.Mode == "Challenge" then joinValue = table.concat({"Challenge", target.ChallengeType or "Regular", tostring(target.Index or 1)}, "|")
-        else joinValue = table.concat({target.Mode, target.Map, target.Act or "", target.Difficulty or "Hard"}, "|") end
-        self:SetStatus(string.format("Dragon Wish: chuẩn bị %s %s %s.", target.Mode, target.Map, target.Act or ""))
-        return true, joinValue, "DragonWish", snapshot
-    end
-    self:SetStatus("Dragon Wish chỉ còn objective passive/unsupported hoặc thiếu Macro; nhường automation thấp hơn.")
-    return false, nil, nil, snapshot
-end
-function EventAuto:Tick(stateInfo)
-    local directive = {BlockNormalJoin = false, BlockNormalSummon = false, JoinValue = nil, Owner = nil}
-    if not appConfig.EventAuto.autoBossBounty and type(self.Runtime.ActiveTarget) == "table" and self.Runtime.ActiveTarget.Owner == "BossBounty" then self.Runtime.ActiveTarget = nil end
-    if not appConfig.EventAuto.autoDragonWish and type(self.Runtime.ActiveTarget) == "table" and self.Runtime.ActiveTarget.Owner == "DragonWish" then self.Runtime.ActiveTarget = nil end
-    if self:RunGuess(stateInfo) then
-        directive.BlockNormalJoin = true
-        directive.BlockNormalSummon = true
-        self:UpdateDisplay(nil)
-        return directive
-    end
-    local bossBlocks, bossJoin, bossOwner = self:RunBoss(stateInfo)
-    if bossBlocks then
-        directive.BlockNormalJoin = true
-        directive.BlockNormalSummon = true
-        directive.JoinValue = bossJoin
-        directive.Owner = bossOwner
-        self:UpdateDisplay(nil)
-        return directive
-    end
-    local dragonBlocks, dragonJoin, dragonOwner, snapshot = self:RunDragon(stateInfo)
-    directive.BlockNormalJoin = dragonBlocks == true
-    directive.BlockNormalSummon = dragonBlocks == true
-    directive.JoinValue = dragonJoin
-    directive.Owner = dragonOwner
-    if not appConfig.EventAuto.autoGuessUnit and not appConfig.EventAuto.autoBossBounty and not appConfig.EventAuto.autoDragonWish then
-        self:SetStatus("Auto Event đang tắt.")
-    end
-    self:UpdateDisplay(snapshot)
-    return directive
-end
 local function snapshotUnitData()
     local ok, playerData = pcall(function() return Fusion.peek(Dependencies.PlayerData) end)
     if not ok or type(playerData) ~= "table" then return {} end
@@ -8521,7 +7999,7 @@ local function getActiveTargetBanner()
 end
 local lastStateInfo = nil
 local lastSentTime = 0
-local autoClaimTimes = {Quests = 0, Index = 0, Achievements = 0, Codes = 0, ExpeditionVoteActive = false, ExpeditionVotePrevious = false, ExpeditionVoteLastCheck = 0}
+local autoClaimTimes = {Quests = 0, Calendar = 0, Milestones = 0, Index = 0, Achievements = 0, Codes = 0, ExpeditionVoteActive = false, ExpeditionVotePrevious = false, ExpeditionVoteLastCheck = 0}
 local function teleportScreenVisible()
     local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
     if not playerGui then return false end
@@ -8582,99 +8060,51 @@ task.spawn(function()
         end
         local maintenanceBlocking = mapSwitchBlocking or (not getgenv().AnimeExpeditionsMapSwitchPending and coordinator and coordinator:BeforeAutomation(
             stateInfo,
-            EventAuto:TargetMatchesState(stateInfo),
             QuestAuto:TargetMatchesState(stateInfo),
             challengeTargetMatchesState(stateInfo)
         ) or false)
         if coordinator and not getgenv().AnimeExpeditionsMapSwitchPending and (not stateInfo or stateInfo.CurrentGameState == "Lobby") then
             maintenanceBlocking = coordinator:RunQuestBoardClaims() or maintenanceBlocking
         end
-        local eventDirective = {BlockNormalJoin = false, BlockNormalSummon = false, JoinValue = nil, Owner = nil}
         local questDirective = {BlockNormalJoin = false, BlockNormalSummon = false, JoinValue = nil}
         local challengeDirective = {BlockNormalJoin = false, JoinValue = nil}
         if maintenanceBlocking then
-            eventDirective.BlockNormalJoin = true
-            eventDirective.BlockNormalSummon = true
             questDirective.BlockNormalJoin = true
             questDirective.BlockNormalSummon = true
             challengeDirective.BlockNormalJoin = true
         else
-            local eventOk, eventResult = xpcall(function() return EventAuto:Tick(stateInfo) end, debug.traceback)
-            if eventOk and type(eventResult) == "table" then
-                eventDirective = eventResult
-                EventAuto.Runtime.ErrorCount = 0
-            elseif not eventOk then
-                eventDirective.BlockNormalJoin = true
-                eventDirective.BlockNormalSummon = true
-                EventAuto.Runtime.ErrorCount = (EventAuto.Runtime.ErrorCount or 0) + 1
-                if tick() - (EventAuto.Runtime.LastErrorAt or 0) >= 10 then
-                    EventAuto.Runtime.LastErrorAt = tick()
-                    warn("[AUTO EVENT] " .. tostring(eventResult))
-                end
-                if EventAuto.Runtime.ErrorCount >= 3 then
-                    appConfig.EventAuto.autoGuessUnit = false
-                    appConfig.EventAuto.autoBossBounty = false
-                    appConfig.EventAuto.autoDragonWish = false
-                    EventAuto.Runtime.ActiveTarget = nil
-                    EventAuto.Runtime.Pending = nil
-                    saveConfig()
-                    Fluent:Notify({Title = "Auto Event Disabled", Content = "Controller lỗi 3 lần liên tiếp; đã tắt để mở khóa scheduler.", Duration = 7})
-                end
-            end
-            local eventWaitingInLobby = eventDirective.BlockNormalJoin and eventDirective.JoinValue == nil
-                and type(EventAuto.Runtime.ActiveTarget) ~= "table"
-                and (not stateInfo or stateInfo.CurrentGameState == "Lobby")
-            if eventWaitingInLobby then
-                EventAuto.Runtime.LobbyBlockedSince = EventAuto.Runtime.LobbyBlockedSince or tick()
-                if tick() - EventAuto.Runtime.LobbyBlockedSince >= 15 then
-                    eventDirective.BlockNormalJoin = false
-                    eventDirective.BlockNormalSummon = false
-                end
-            else
-                EventAuto.Runtime.LobbyBlockedSince = nil
-            end
-            local eventOwnsPriority = eventDirective.BlockNormalJoin or eventDirective.JoinValue ~= nil
-            if not eventOwnsPriority then
-            do
-                local questOk, questResult = xpcall(function() return QuestAuto:Tick(stateInfo) end, debug.traceback)
-                if questOk and type(questResult) == "table" then
-                    questDirective = questResult
-                    QuestAuto.Runtime.ErrorCount = 0
-                elseif not questOk then
-                    questDirective.BlockNormalJoin = true
-                    questDirective.BlockNormalSummon = true
-                    QuestAuto.Runtime.ErrorCount = (QuestAuto.Runtime.ErrorCount or 0) + 1
-                    if tick() - (QuestAuto.Runtime.LastErrorAt or 0) >= 10 then
-                        QuestAuto.Runtime.LastErrorAt = tick()
-                        warn("[AUTO QUEST] " .. tostring(questResult))
-                    end
-                    if QuestAuto.Runtime.ErrorCount >= 3 then
-                        appConfig.QuestAuto.Enabled = false
-                        appConfig.QuestAuto.ActiveTarget = nil
-                        QuestAuto.Runtime.Pending = nil
-                        saveConfig()
-                        if QuestAuto.Toggle then task.defer(function() pcall(function() QuestAuto.Toggle:SetValue(false) end) end) end
-                        Fluent:Notify({Title = "Auto Quest Disabled", Content = "Controller lỗi 3 lần liên tiếp; đã tắt để mở khóa scheduler.", Duration = 7})
-                    end
-                end
-                local questWaitingInLobby = questDirective.BlockNormalJoin and questDirective.JoinValue == nil
-                    and type(appConfig.QuestAuto.ActiveTarget) ~= "table"
-                    and (not stateInfo or stateInfo.CurrentGameState == "Lobby")
-                if questWaitingInLobby then
-                    QuestAuto.Runtime.LobbyBlockedSince = QuestAuto.Runtime.LobbyBlockedSince or tick()
-                    if tick() - QuestAuto.Runtime.LobbyBlockedSince >= 15 then
-                        questDirective.BlockNormalJoin = false
-                        questDirective.BlockNormalSummon = false
-                    end
-                else
-                    QuestAuto.Runtime.LobbyBlockedSince = nil
-                end
-            end
-            else
-                QuestAuto:SetStatus("Đang chờ Auto Event hoàn tất...")
-                QuestAuto:UpdateDisplay(QuestAuto:Snapshot())
+            local questOk, questResult = xpcall(function() return QuestAuto:Tick(stateInfo) end, debug.traceback)
+            if questOk and type(questResult) == "table" then
+                questDirective = questResult
+                QuestAuto.Runtime.ErrorCount = 0
+            elseif not questOk then
                 questDirective.BlockNormalJoin = true
                 questDirective.BlockNormalSummon = true
+                QuestAuto.Runtime.ErrorCount = (QuestAuto.Runtime.ErrorCount or 0) + 1
+                if tick() - (QuestAuto.Runtime.LastErrorAt or 0) >= 10 then
+                    QuestAuto.Runtime.LastErrorAt = tick()
+                    warn("[AUTO QUEST] " .. tostring(questResult))
+                end
+                if QuestAuto.Runtime.ErrorCount >= 3 then
+                    appConfig.QuestAuto.Enabled = false
+                    appConfig.QuestAuto.ActiveTarget = nil
+                    QuestAuto.Runtime.Pending = nil
+                    saveConfig()
+                    if QuestAuto.Toggle then task.defer(function() pcall(function() QuestAuto.Toggle:SetValue(false) end) end) end
+                    Fluent:Notify({Title = "Auto Quest Disabled", Content = "Controller lỗi 3 lần liên tiếp; đã tắt để mở khóa scheduler.", Duration = 7})
+                end
+            end
+            local questWaitingInLobby = questDirective.BlockNormalJoin and questDirective.JoinValue == nil
+                and type(appConfig.QuestAuto.ActiveTarget) ~= "table"
+                and (not stateInfo or stateInfo.CurrentGameState == "Lobby")
+            if questWaitingInLobby then
+                QuestAuto.Runtime.LobbyBlockedSince = QuestAuto.Runtime.LobbyBlockedSince or tick()
+                if tick() - QuestAuto.Runtime.LobbyBlockedSince >= 15 then
+                    questDirective.BlockNormalJoin = false
+                    questDirective.BlockNormalSummon = false
+                end
+            else
+                QuestAuto.Runtime.LobbyBlockedSince = nil
             end
             local questTarget = appConfig.QuestAuto.Enabled and appConfig.QuestAuto.ActiveTarget or nil
             local questOwnsPriority = type(questTarget) == "table" and questTarget.Owner == "Quest"
@@ -8704,24 +8134,19 @@ task.spawn(function()
                     end
                 end
             else
-                setChallengeStatus(eventOwnsPriority and "Đang chờ Auto Event hoàn tất..." or "Đang chờ Auto Quest hoàn tất...")
+                setChallengeStatus("Đang chờ Auto Quest hoàn tất...")
                 updateChallengeDisplay(getRegularChallengeState())
             end
-        end
-        if coordinator and not coordinator.MapSwitch and stateInfo and eventDirective.JoinValue
-            and (stateInfo.CurrentGameState == "Finished" or stateInfo.CurrentGameState == "Victory" or stateInfo.CurrentGameState == "Defeat") then
-            coordinator:BeginMapSwitchResolution(eventDirective.Owner or "Event", "Auto Event cần đổi map", stateInfo)
         end
         if coordinator and not coordinator.MapSwitch and stateInfo and appConfig.autoJoinEnabled and appConfig.AutoJoin ~= ""
             and tick() >= (getgenv().AnimeExpeditionsAutoJoinCooldownUntil or 0)
             and (stateInfo.CurrentGameState == "Finished" or stateInfo.CurrentGameState == "Victory" or stateInfo.CurrentGameState == "Defeat")
-            and not eventDirective.BlockNormalJoin and eventDirective.JoinValue == nil
             and not questDirective.BlockNormalJoin and questDirective.JoinValue == nil
             and not challengeDirective.BlockNormalJoin and challengeDirective.JoinValue == nil
             and not (type(appConfig.QuestAuto.ActiveTarget) == "table" and appConfig.QuestAuto.ActiveTarget.Owner == "Quest")
             and not (type(appConfig.challengeActiveTarget) == "table" and appConfig.challengeActiveTarget.Owner == "Challenge")
             and not maintenanceBlocking and not getgenv().AnimeExpeditionsJoinLock
-            and not EventAuto:TargetMatchesState(stateInfo) and not QuestAuto:TargetMatchesState(stateInfo) and not challengeTargetMatchesState(stateInfo) then
+            and not QuestAuto:TargetMatchesState(stateInfo) and not challengeTargetMatchesState(stateInfo) then
             local autoJoinParts = string.split(appConfig.AutoJoin, "|")
             local desiredMode = autoJoinParts[1] == "Challenge" and "Challenge" or tostring(autoJoinParts[1] or "")
             local desiredMap = tostring(autoJoinParts[2] or "")
@@ -8730,12 +8155,12 @@ task.spawn(function()
             if modeDiffers or mapDiffers then coordinator:BeginMapSwitchResolution("AutoJoin", "Auto Join cần đổi map", stateInfo) end
         end
         if coordinator and coordinator.MapSwitch and coordinator.MapSwitch.Phase == "Resolve" then
-            local switchJoinValue = eventDirective.JoinValue or questDirective.JoinValue or challengeDirective.JoinValue
-            local switchOwner = eventDirective.JoinValue and eventDirective.Owner or (questDirective.JoinValue and "Quest" or (challengeDirective.JoinValue and "Challenge" or nil))
-            local higherPriorityOwned = eventDirective.BlockNormalJoin or questDirective.BlockNormalJoin or challengeDirective.BlockNormalJoin
+            local switchJoinValue = questDirective.JoinValue or challengeDirective.JoinValue
+            local switchOwner = questDirective.JoinValue and "Quest" or (challengeDirective.JoinValue and "Challenge" or nil)
+            local higherPriorityOwned = questDirective.BlockNormalJoin or challengeDirective.BlockNormalJoin
                 or type(appConfig.QuestAuto.ActiveTarget) == "table" and appConfig.QuestAuto.ActiveTarget.Owner == "Quest"
                 or type(appConfig.challengeActiveTarget) == "table" and appConfig.challengeActiveTarget.Owner == "Challenge"
-            if not switchJoinValue and not eventDirective.BlockNormalJoin and not questDirective.BlockNormalJoin and not challengeDirective.BlockNormalJoin
+            if not switchJoinValue and not questDirective.BlockNormalJoin and not challengeDirective.BlockNormalJoin
                 and not higherPriorityOwned
                 and tick() >= (getgenv().AnimeExpeditionsAutoJoinCooldownUntil or 0)
                 and appConfig.autoJoinEnabled and appConfig.AutoJoin ~= "" then
@@ -8751,6 +8176,32 @@ task.spawn(function()
         if getgenv().AnimeExpeditionsMapSwitchPending then
             lastStateInfo = stateInfo
             return
+        end
+        if appConfig.autoClaimCalendar and tick() - autoClaimTimes.Calendar >= 10 then
+            autoClaimTimes.Calendar = tick()
+            pcall(function()
+                for calendarId, calendarInfo in pairs(CalendarInfo) do
+                    if type(calendarInfo) == "table" and type(calendarInfo.Rewards) == "table" then
+                        for day = 1, #calendarInfo.Rewards do
+                            Actions.ClaimCalendarReward(tostring(calendarId), day)
+                        end
+                    end
+                end
+            end)
+        end
+        if appConfig.autoClaimMilestones and tick() - autoClaimTimes.Milestones >= 10 then
+            autoClaimTimes.Milestones = tick()
+            pcall(function()
+                for level = 1, 100 do Actions.ClaimLevelMilestone(level) end
+                local claimedBattlepasses = {}
+                for _, eventInfo in pairs(EventsInfo) do
+                    local battlepassKey = type(eventInfo) == "table" and eventInfo.BattlepassKey or nil
+                    if battlepassKey and not claimedBattlepasses[battlepassKey] then
+                        claimedBattlepasses[battlepassKey] = true
+                        Actions.ClaimAllBattlepassRewards(tostring(battlepassKey))
+                    end
+                end
+            end)
         end
         if appConfig.autoClaimQuests and tick() - autoClaimTimes.Quests >= 2 then
             autoClaimTimes.Quests = tick()
@@ -8814,18 +8265,6 @@ task.spawn(function()
                 coordinator:ProcessMandatory(stateInfo)
             else
             if appConfig.autoClaimBP then pcall(function() Actions.ClaimAllBattlepassRewards(BattlepassInfo.CurrentSeason or "Season1") end) end
-            if appConfig.autoClaimCalendar then
-                pcall(function()
-                    for _, calId in pairs({"DailyRewards", "ReleaseCalendar"}) do
-                        for day = 1, 30 do Actions.ClaimCalendarReward(calId, day) end
-                    end
-                end)
-            end
-            if appConfig.autoClaimMilestones then
-                pcall(function()
-                    for level = 1, 100 do Actions.ClaimLevelMilestone(level) end
-                end)
-            end
             if appConfig.autoClaimIndex and tick() - autoClaimTimes.Index >= 15 then
                 autoClaimTimes.Index = tick()
                 for _, indexType in ipairs({"Unit", "Enemy", "Equipment"}) do
@@ -8934,7 +8373,7 @@ task.spawn(function()
                 coordinator.ShopSkipped = {}
                 coordinator.ShopWaitAt = {}
             end
-            if appConfig.autoSummonEnabled and not eventDirective.BlockNormalSummon and not questDirective.BlockNormalSummon then
+            if appConfig.autoSummonEnabled and not questDirective.BlockNormalSummon then
                 local targetBanner = getActiveTargetBanner()
                 if targetBanner then
                     local summonAmount = appConfig.autoSummonAmount
@@ -8994,13 +8433,13 @@ task.spawn(function()
                 utilityBlockedJoin = coordinator:RunStatRoll(stateInfo)
             end
             local trainingRequired = coordinator and coordinator:TrainingRotationNeeded()
-            if not utilityBlockedJoin and coordinator and (trainingRequired or (not eventDirective.BlockNormalJoin and not questDirective.BlockNormalJoin and not challengeDirective.BlockNormalJoin
-                and not eventDirective.JoinValue and not questDirective.JoinValue and not challengeDirective.JoinValue)) then
+            if not utilityBlockedJoin and coordinator and (trainingRequired or (not questDirective.BlockNormalJoin and not challengeDirective.BlockNormalJoin
+                and not questDirective.JoinValue and not challengeDirective.JoinValue)) then
                 utilityBlockedJoin = coordinator:RunLobbyUtility(stateInfo)
             end
-            local effectiveAutoJoin = eventDirective.JoinValue or questDirective.JoinValue or challengeDirective.JoinValue
-            local joinOwner = eventDirective.JoinValue and eventDirective.Owner or (questDirective.JoinValue and "Quest" or (challengeDirective.JoinValue and "Challenge" or nil))
-            if not effectiveAutoJoin and not eventDirective.BlockNormalJoin and not questDirective.BlockNormalJoin and not challengeDirective.BlockNormalJoin
+            local effectiveAutoJoin = questDirective.JoinValue or challengeDirective.JoinValue
+            local joinOwner = questDirective.JoinValue and "Quest" or (challengeDirective.JoinValue and "Challenge" or nil)
+            if not effectiveAutoJoin and not questDirective.BlockNormalJoin and not challengeDirective.BlockNormalJoin
                 and not (type(appConfig.QuestAuto.ActiveTarget) == "table" and appConfig.QuestAuto.ActiveTarget.Owner == "Quest")
                 and not (type(appConfig.challengeActiveTarget) == "table" and appConfig.challengeActiveTarget.Owner == "Challenge")
                 and tick() >= (getgenv().AnimeExpeditionsAutoJoinCooldownUntil or 0)
@@ -9020,7 +8459,6 @@ task.spawn(function()
             local joinStatus
             if not appConfig.autoJoinEnabled then joinStatus = "Auto Join đang tắt."
             elseif appConfig.AutoJoin == "" then joinStatus = "Chưa chọn Map."
-            elseif eventDirective.BlockNormalJoin then joinStatus = "Đang chờ Auto Event."
             elseif questDirective.BlockNormalJoin then joinStatus = "Đang chờ Auto Quest."
             elseif challengeDirective.BlockNormalJoin then joinStatus = "Đang chờ Auto Challenge."
             elseif shopBlockedJoin then joinStatus = "Đang chờ Auto Shop."
@@ -9044,13 +8482,10 @@ task.spawn(function()
                 if #parts >= 2 then
                     local isChallengeJoin = parts[1] == "Challenge"
                     local challengeTarget = isChallengeJoin
-                        and (joinOwner == "DragonWish" and EventAuto.Runtime.ActiveTarget
-                            or (joinOwner == "Quest" and appConfig.QuestAuto.ActiveTarget or appConfig.challengeActiveTarget))
+                        and (joinOwner == "Quest" and appConfig.QuestAuto.ActiveTarget or appConfig.challengeActiveTarget)
                         or nil
                     local levelData
-                    if joinOwner == "BossBounty" and type(EventAuto.Runtime.ActiveTarget) == "table" and type(EventAuto.Runtime.ActiveTarget.QueueData) == "table" then
-                        levelData = table.clone(EventAuto.Runtime.ActiveTarget.QueueData)
-                    elseif isChallengeJoin then
+                    if isChallengeJoin then
                         levelData = {
                             Gamemode = "Challenge",
                             ChallengeType = parts[2],
@@ -9094,15 +8529,7 @@ task.spawn(function()
                         pcall(function() Actions.LoadUnitTeam(tostring(appConfig.TeamSelections[teamMap])) end)
                         task.wait(0.25)
                     end
-                    if joinOwner == "BossBounty" or joinOwner == "DragonWish" then
-                        if type(EventAuto.Runtime.ActiveTarget) == "table" then
-                            EventAuto.Runtime.ActiveTarget.Owner = joinOwner
-                            EventAuto.Runtime.ActiveTarget.JoinIssuedAt = os.time()
-                            EventAuto.Runtime.ActiveTarget.JoinValue = effectiveAutoJoin
-                            EventAuto.Runtime.ActiveTarget.MatchesPlayedAtJoin = getSessionMatchesPlayed() or (stateInfo and tonumber(stateInfo.SessionMatchesPlayed))
-                        end
-                        EventAuto.Runtime.LastJoinAt = tick()
-                    elseif joinOwner == "Quest" then
+                    if joinOwner == "Quest" then
                         if type(appConfig.QuestAuto.ActiveTarget) == "table" then
                             appConfig.QuestAuto.ActiveTarget.Owner = "Quest"
                             appConfig.QuestAuto.ActiveTarget.JoinIssuedAt = os.time()
@@ -9190,7 +8617,7 @@ task.spawn(function()
                 if currentSprites >= 125 then
                     if coordinator then
                         coordinator:Queue("SpriteCraft")
-                            if not EventAuto:TargetMatchesState(stateInfo) and not QuestAuto:TargetMatchesState(stateInfo) and not challengeTargetMatchesState(stateInfo) then
+                            if not QuestAuto:TargetMatchesState(stateInfo) and not challengeTargetMatchesState(stateInfo) then
                                 coordinator:RequestLobby("Craft", "Sprite Grey full", stateInfo)
                         end
                     else
@@ -9217,7 +8644,7 @@ task.spawn(function()
                     end
                 end
             end
-            if appConfig.autoRestartInf and isInfiniteGamemode(stateInfo.Gamemode) and not EventAuto:TargetMatchesState(stateInfo) and not QuestAuto:TargetMatchesState(stateInfo)
+            if appConfig.autoRestartInf and isInfiniteGamemode(stateInfo.Gamemode) and not QuestAuto:TargetMatchesState(stateInfo)
                 and not (coordinator and coordinator:IsTransitionBusy()) then
                 if stateInfo.Wave >= appConfig.restartWaveNum and stateInfo.CurrentGameState ~= "Lobby" then
                     local lastAutoRestartTrigger = getgenv().lastAutoRestartTrigger or 0
@@ -12313,8 +11740,329 @@ else
     })
 end
 
+local SummerUnitUtils = require(ReplicatedStorage.Shared.UnitUtils)
+local Shared = require(FusionPackage.Shared)
+local summerHotbarRuntime = {
+    increment = nil,
+    pendingPlacement = nil,
+    handledPhantoms = {},
+    usedPositions = {},
+    lastPlace = 0,
+    lastUse = 0,
+    lastError = 0,
+    pendingFish4Asset = nil,
+    pendingFish4At = 0,
+    lastFish4Asset = nil,
+}
+local function summerHotbarGameState()
+    local state = expeditionPeek(Dependencies.GameState)
+    local parameters = type(state) == "table" and expeditionPeek(state.Parameters)
+    if type(state) ~= "table" or type(parameters) ~= "table" or expeditionPeek(state.Active) ~= true then return nil end
+    if expeditionPeek(parameters.Gamemode) == "Expedition" then return nil end
+    return state, parameters
+end
+local function summerMacroFinished()
+    return lastHasRunMacro == true and not isPlaying and not isRecording
+end
+local function summerHotbarSlots()
+    local hotbar = expeditionPeek(Dependencies.HotbarState)
+    return hotbar and expeditionPeek(hotbar.Slots) or {}
+end
+local function summerSlotData(slotState)
+    local slot = expeditionPeek(slotState)
+    local data = type(slot) == "table" and expeditionPeek(slot.Data) or nil
+    local asset = type(slot) == "table" and expeditionPeek(slot.Asset) or nil
+    asset = asset or (type(data) == "table" and expeditionPeek(data.Asset))
+    return slot, data, asset
+end
+local function summerPlacedUnits()
+    local units = {}
+    for model, state in pairs(expeditionPeek(Dependencies.GameUnits) or {}) do
+        local data = expeditionPeek(state)
+        local unitData = type(data) == "table" and (expeditionPeek(data.UnitData) or data.UnitData or data) or nil
+        local owner = type(data) == "table" and expeditionPeek(data.Owner)
+        local gameUnitId = type(data) == "table" and (expeditionPeek(data.ID) or expeditionPeek(data.GameUnitID) or expeditionPeek(data.GameID))
+        local asset = type(data) == "table" and (expeditionPeek(data.Asset) or (type(unitData) == "table" and expeditionPeek(unitData.Asset)))
+        if owner == LocalPlayer and gameUnitId and asset and not expeditionPeek(data.IsClone) then
+            table.insert(units, {
+                model = typeof(model) == "Instance" and model or nil,
+                id = tostring(gameUnitId),
+                asset = asset,
+                data = unitData,
+            })
+        end
+    end
+    return units
+end
+local function summerRandomTarget()
+    local units = summerPlacedUnits()
+    return #units > 0 and units[math.random(1, #units)] or nil
+end
+local function summerPlacementCount(asset)
+    local state = expeditionPeek(Dependencies.GamePlayerState)
+    local counts = type(state) == "table" and expeditionPeek(state.PlacementCounts)
+    return tonumber(type(counts) == "table" and expeditionPeek(counts[asset])) or 0
+end
+local function summerPlacementCost(slot, asset)
+    local cost = tonumber(expeditionPeek(slot.PlacementCost))
+    if cost then return cost end
+    local ok, info = pcall(function() return SharedInfo:GetAsset(asset) end)
+    local base = ok and info and info.UpgradeInfo and info.UpgradeInfo[0]
+    return tonumber(base and base.Cost)
+end
+local function summerPositionOccupied(position)
+    for _, unit in ipairs(summerPlacedUnits()) do
+        local modelPosition = unit.model and unit.model:GetPivot().Position
+        if modelPosition and (modelPosition - position).Magnitude < 5.5 then return true end
+    end
+    for _, used in pairs(summerHotbarRuntime.usedPositions) do
+        if (used - position).Magnitude < 5.5 then return true end
+    end
+    return false
+end
+local function summerPlacementCFrame(asset)
+    local map = workspace:FindFirstChild("Map")
+    local paths = map and map:FindFirstChild("Paths")
+    if not paths then return nil end
+    local lanes = paths:GetChildren()
+    for index = #lanes, 2, -1 do
+        local swapIndex = math.random(1, index)
+        lanes[index], lanes[swapIndex] = lanes[swapIndex], lanes[index]
+    end
+    for _, lane in ipairs(lanes) do
+        local points = {}
+        for _, point in ipairs(lane:GetChildren()) do
+            if point:IsA("BasePart") then table.insert(points, point) end
+        end
+        table.sort(points, function(left, right)
+            return (tonumber(left.Name) or math.huge) < (tonumber(right.Name) or math.huge)
+        end)
+        local pointIndices = {}
+        for index = 2, #points - 1 do table.insert(pointIndices, index) end
+        for index = #pointIndices, 2, -1 do
+            local swapIndex = math.random(1, index)
+            pointIndices[index], pointIndices[swapIndex] = pointIndices[swapIndex], pointIndices[index]
+        end
+        for _, index in ipairs(pointIndices) do
+            local point = points[index]
+            local direction = points[index + 1].Position - points[index - 1].Position
+            direction = Vector3.new(direction.X, 0, direction.Z)
+            if direction.Magnitude > 0 then
+                local side = Vector3.new(-direction.Z, 0, direction.X).Unit
+                local offsets = {0, 4, -4, 7, -7, 10, -10, 13, -13}
+                for offsetIndex = #offsets, 2, -1 do
+                    local swapIndex = math.random(1, offsetIndex)
+                    offsets[offsetIndex], offsets[swapIndex] = offsets[swapIndex], offsets[offsetIndex]
+                end
+                for _, offset in ipairs(offsets) do
+                    local position = point.Position - Vector3.new(0, 1, 0) + side * offset
+                    local cframe = CFrame.new(position)
+                    local free = not summerPositionOccupied(position)
+                    local ok, allowed = pcall(function() return SummerUnitUtils:IsPlacementAllowed(asset, cframe) end)
+                    if free and ok and allowed then return cframe end
+                end
+            end
+        end
+    end
+    return nil
+end
+local function summerTryPlaceUnit()
+    if tick() - summerHotbarRuntime.lastPlace < 0.75 then return end
+    local playerState = expeditionPeek(Dependencies.GamePlayerState)
+    local gameState = expeditionPeek(Dependencies.GameState)
+    local increment = tonumber(playerState and expeditionPeek(playerState.GameIncrement))
+        or tonumber(type(gameState) == "table" and expeditionPeek(gameState.GameIncrement))
+    if summerHotbarRuntime.increment ~= increment then
+        summerHotbarRuntime.increment = increment
+        summerHotbarRuntime.pendingPlacement = nil
+        summerHotbarRuntime.handledPhantoms = {}
+        summerHotbarRuntime.usedPositions = {}
+    end
+    local pending = summerHotbarRuntime.pendingPlacement
+    if pending then
+        if summerPlacementCount(pending.asset) > pending.before then
+            summerHotbarRuntime.pendingPlacement = nil
+        elseif tick() - pending.sentAt < 1.5 then
+            return
+        else
+            local replica = ExpeditionNodes.GET_GAME_PLAYER_REPLICA:InvokeSelf()
+            if replica then
+                replica:FireServer("PlaceGamePhantom", pending.slot, pending.cframe)
+                summerHotbarRuntime.handledPhantoms[pending.key] = true
+                summerHotbarRuntime.usedPositions[pending.key] = pending.cframe.Position
+                print("[SUMMER HOTBAR] Unit placement was not confirmed; queued phantom for " .. pending.asset)
+            end
+            summerHotbarRuntime.pendingPlacement = nil
+            summerHotbarRuntime.lastPlace = tick()
+            return
+        end
+    end
+    for slotIndex, slotState in pairs(summerHotbarSlots()) do
+        local slot, data, asset = summerSlotData(slotState)
+        local key = tostring(slot.ID or slotIndex)
+        local limit = tonumber(expeditionPeek(slot.PlacementLimit)) or tonumber(data and expeditionPeek(data.MaxPlacements)) or 1
+        if slot.AssetType == "Unit" and type(data) == "table" and expeditionPeek(data.MockUnit) == true
+            and asset and summerPlacementCount(asset) < limit and not summerHotbarRuntime.handledPhantoms[key] then
+            local cframe = summerPlacementCFrame(asset)
+            if not cframe then return end
+            local replica = ExpeditionNodes.GET_GAME_PLAYER_REPLICA:InvokeSelf()
+            if not replica then return end
+            local yen = tonumber(playerState and expeditionPeek(playerState.Yen)) or 0
+            local cost = summerPlacementCost(slot, asset)
+            if cost and yen < cost then
+                replica:FireServer("PlaceGamePhantom", tonumber(slotIndex), cframe)
+                summerHotbarRuntime.handledPhantoms[key] = true
+                summerHotbarRuntime.usedPositions[key] = cframe.Position
+                print("[SUMMER HOTBAR] Not enough Yen; queued phantom for " .. asset)
+            else
+                replica:FireServer("PlaceGameUnit", tonumber(slotIndex), cframe)
+                summerHotbarRuntime.pendingPlacement = {
+                    key = key,
+                    slot = tonumber(slotIndex),
+                    asset = asset,
+                    cframe = cframe,
+                    before = summerPlacementCount(asset),
+                    sentAt = tick(),
+                }
+                print("[SUMMER HOTBAR] Placing event unit " .. asset .. " near lane")
+            end
+            summerHotbarRuntime.lastPlace = tick()
+            return
+        end
+    end
+end
+local function summerCloneTargetForFish4()
+    local wanted = appConfig.summerFishCloneTarget
+    if type(wanted) == "string" and wanted ~= "" and wanted ~= "Random" then
+        for _, unit in ipairs(summerPlacedUnits()) do
+            if unit.asset == wanted then return unit end
+        end
+    end
+    return summerRandomTarget()
+end
+local function summerIsPlacing()
+    local ok, placing = pcall(function() return expeditionPeek(Shared.PlacingUnitStates) end)
+    if not ok or type(placing) ~= "table" then return false end
+    local ok2, typ = pcall(function() return expeditionPeek(placing.Type) end)
+    return ok2 and typ == "Unit"
+end
+local function summerTryPlaceFishClone()
+    if not summerHotbarRuntime.pendingFish4Asset then return false end
+    if not summerIsPlacing() then
+        if tick() - summerHotbarRuntime.pendingFish4At > 8 then
+            summerHotbarRuntime.pendingFish4Asset = nil
+        end
+        return false
+    end
+    if tick() - summerHotbarRuntime.lastPlace < 0.6 then return true end
+    local asset = summerHotbarRuntime.pendingFish4Asset
+    local cframe = summerPlacementCFrame(asset)
+    if not cframe then return true end
+    local replica = ExpeditionNodes.GET_GAME_PLAYER_REPLICA:InvokeSelf()
+    local ok = false
+    if replica then
+        ok = pcall(function() replica:FireServer("PlaceGameUnit", cframe) end)
+        if not ok then ok = pcall(function() replica:FireServer("PlaceGameUnit", 1, cframe) end) end
+        if not ok then ok = pcall(function() Shared.SelectedHotbarIndex:set(nil) end) end
+    end
+    if ok then
+        print("[SUMMER HOTBAR] Placing Mirror Fish clone " .. tostring(asset) .. " at lane")
+        summerHotbarRuntime.lastPlace = tick()
+        task.delay(1.2, function()
+            if not summerIsPlacing() then summerHotbarRuntime.pendingFish4Asset = nil end
+        end)
+    end
+    return true
+end
+local function summerTryUseItem()
+    if summerTryPlaceFishClone() then return end
+    if tick() - summerHotbarRuntime.lastUse < 2 then return end
+    local priorities = {EquipmentTome = 1, ExpeditionTome = 2, Fish6 = 3, Fish4 = 4, Fish1 = 5, Fish2 = 5, Fish3 = 5, Fish5 = 5, Fish7 = 5}
+    local fishAssets = {Fish1 = true, Fish2 = true, Fish3 = true, Fish4 = true, Fish5 = true, Fish6 = true, Fish7 = true}
+    local choices = {}
+    for slotIndex, slotState in pairs(summerHotbarSlots()) do
+        local slot, data, asset = summerSlotData(slotState)
+        if slot.AssetType == "Item" and priorities[asset] then
+            table.insert(choices, {slot = tonumber(slotIndex), id = slot.ID, data = data, asset = asset})
+        end
+    end
+    table.sort(choices, function(left, right) return priorities[left.asset] < priorities[right.asset] end)
+    for _, item in ipairs(choices) do
+        if item.asset == "Fish4" then
+            if summerIsPlacing() then continue end
+            if summerHotbarRuntime.pendingFish4Asset and tick() - summerHotbarRuntime.pendingFish4At < 10 then continue end
+            if summerHotbarRuntime.lastFish4At and tick() - summerHotbarRuntime.lastFish4At < 8 then continue end
+            if tick() - (summerHotbarRuntime.pendingFish4At or 0) < 4 and summerHotbarRuntime.lastFish4Asset then
+                local already = false
+                for _, u in ipairs(summerPlacedUnits()) do if u.asset == summerHotbarRuntime.lastFish4Asset then already = true break end end
+                if not already then continue end
+            end
+        end
+        local target, kind
+        if item.asset == "ExpeditionTome" then
+            target, kind = expeditionTomeTarget(item)
+        elseif item.asset == "Fish4" then
+            target = summerCloneTargetForFish4()
+        elseif fishAssets[item.asset] then
+            target = summerRandomTarget()
+        else
+            target = summerRandomTarget()
+        end
+        if target and target.id then
+            local ok, sent, err = pcall(expeditionUseHotbarItem, item, target.gameUnitId or target.id)
+            if not ok or not sent then
+                local ok2 = pcall(function()
+                    require(FusionPackage.Shared).SelectedHotbarIndex:set(item.slot)
+                    task.wait(0.35)
+                    local Actions = require(FusionPackage.Actions)
+                    if Actions.UseItem then Actions.UseItem(item.asset) end
+                end)
+                if ok2 then ok, sent = true, nil end
+            end
+            if ok and sent then
+                print("[SUMMER HOTBAR] Used " .. item.asset .. " on " .. target.asset .. (kind and " (" .. kind .. ")" or ""))
+                if item.asset == "Fish4" then
+                    summerHotbarRuntime.pendingFish4Asset = target.asset
+                    summerHotbarRuntime.pendingFish4At = tick()
+                    summerHotbarRuntime.lastFish4Asset = target.asset
+                    summerHotbarRuntime.lastFish4At = tick()
+                end
+            else
+                if item.asset == "Fish4" then
+                    summerHotbarRuntime.pendingFish4At = tick()
+                    summerHotbarRuntime.lastFish4At = tick()
+                end
+                warn("[SUMMER HOTBAR] Failed to use " .. item.asset .. ": " .. tostring(sent or err))
+            end
+            summerHotbarRuntime.lastUse = tick()
+            return
+        elseif fishAssets[item.asset] and item.slot then
+            local ok = pcall(function()
+                require(FusionPackage.Shared).SelectedHotbarIndex:set(item.slot)
+                task.wait(0.35)
+                local Actions = require(FusionPackage.Actions)
+                if Actions.UseItem then Actions.UseItem(item.asset) end
+            end)
+            if ok then print("[SUMMER HOTBAR] Used " .. item.asset .. " (no target)") end
+            summerHotbarRuntime.lastUse = tick()
+            return
+        end
+    end
+end
+
 task.spawn(function()
     while expeditionScriptIsCurrent() and task.wait(0.5) do
+        local gameState, parameters = summerHotbarGameState()
+        if appConfig.summerHotbarEnabled and gameState and summerMacroFinished() then
+            local ok, err = xpcall(function()
+                summerTryPlaceUnit()
+                if expeditionPeek(parameters.EventId) == "Summer2026Event" then summerTryUseItem() end
+            end, debug.traceback)
+            if not ok and tick() - summerHotbarRuntime.lastError >= 5 then
+                summerHotbarRuntime.lastError = tick()
+                warn("[SUMMER HOTBAR] " .. tostring(err))
+            end
+        end
         if getgenv().AnimeExpeditionsMapSwitchPending then
             getgenv().ExpeditionRouteRewardSearching = false
             getgenv().ExpeditionPostBossSellMode = false
