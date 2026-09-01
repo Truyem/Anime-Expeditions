@@ -11753,6 +11753,8 @@ local summerHotbarRuntime = {
     pendingFish4Asset = nil,
     pendingFish4At = 0,
     lastFish4Asset = nil,
+    lastFish4At = 0,
+    lastTrash = 0,
 }
 local function summerHotbarGameState()
     local state = expeditionPeek(Dependencies.GameState)
@@ -11900,20 +11902,22 @@ local function summerTryPlaceUnit()
     for slotIndex, slotState in pairs(summerHotbarSlots()) do
         local slot, data, asset = summerSlotData(slotState)
         local key = tostring(slot.ID or slotIndex)
-        local limit = tonumber(expeditionPeek(slot.PlacementLimit)) or tonumber(data and expeditionPeek(data.MaxPlacements)) or 1
         if slot.AssetType == "Unit" and type(data) == "table" and expeditionPeek(data.MockUnit) == true
-            and asset and summerPlacementCount(asset) < limit and not summerHotbarRuntime.handledPhantoms[key] then
+            and asset and not summerHotbarRuntime.handledPhantoms[key] then
+            local count = summerPlacementCount(asset)
+            local limit = tonumber(expeditionPeek(slot.PlacementLimit)) or tonumber(data and expeditionPeek(data.MaxPlacements)) or 1
+            local atLimit = count >= limit
             local cframe = summerPlacementCFrame(asset)
             if not cframe then return end
             local replica = ExpeditionNodes.GET_GAME_PLAYER_REPLICA:InvokeSelf()
             if not replica then return end
             local yen = tonumber(playerState and expeditionPeek(playerState.Yen)) or 0
             local cost = summerPlacementCost(slot, asset)
-            if cost and yen < cost then
+            if (cost and yen < cost) or atLimit then
                 replica:FireServer("PlaceGamePhantom", tonumber(slotIndex), cframe)
                 summerHotbarRuntime.handledPhantoms[key] = true
                 summerHotbarRuntime.usedPositions[key] = cframe.Position
-                print("[SUMMER HOTBAR] Not enough Yen; queued phantom for " .. asset)
+                print("[SUMMER HOTBAR] " .. (atLimit and "At limit, queued phantom for " or "Not enough Yen; queued phantom for ") .. asset)
             else
                 replica:FireServer("PlaceGameUnit", tonumber(slotIndex), cframe)
                 summerHotbarRuntime.pendingPlacement = {
@@ -11921,7 +11925,7 @@ local function summerTryPlaceUnit()
                     slot = tonumber(slotIndex),
                     asset = asset,
                     cframe = cframe,
-                    before = summerPlacementCount(asset),
+                    before = count,
                     sentAt = tick(),
                 }
                 print("[SUMMER HOTBAR] Placing event unit " .. asset .. " near lane")
@@ -11939,6 +11943,45 @@ local function summerCloneTargetForFish4()
         end
     end
     return summerRandomTarget()
+end
+local function summerTrashRandomTome()
+    local hotbar = expeditionPeek(Dependencies.HotbarState)
+    local maxSlots = tonumber(hotbar and expeditionPeek(hotbar.MaxSlots)) or 6
+    local slots = summerHotbarSlots()
+    local occupied = 0
+    for _ in pairs(slots) do occupied += 1 end
+    if occupied < maxSlots then return false end
+    local tomeSlots = {}
+    local mockCount = 0
+    for idx, st in pairs(slots) do
+        local sl, dt, asset = summerSlotData(st)
+        if asset == "ExpeditionTome" then table.insert(tomeSlots, tonumber(idx)) end
+        if sl.AssetType == "Unit" and dt and expeditionPeek(dt.MockUnit) == true then mockCount += 1 end
+    end
+    if mockCount > 0 then return false end
+    if #tomeSlots < 6 then return false end
+    if tick() - (summerHotbarRuntime.lastTrash or 0) < 3 then return true end
+    local pick = tomeSlots[math.random(1, #tomeSlots)]
+    local ok = false
+    pcall(function()
+        local Actions = require(FusionPackage.Actions)
+        if Actions.SendGameRequest then ok = pcall(function() Actions.SendGameRequest("TrashUnit", pick) end) or ok end
+        if not ok then
+            local h = ExpeditionNodes.GET_HOTBAR_REPLICA:InvokeSelf()
+            if h then ok = pcall(function() h:FireServer("TrashUnit", pick) end) or ok end
+        end
+        if not ok then
+            local p = ExpeditionNodes.GET_GAME_PLAYER_REPLICA:InvokeSelf()
+            if p then ok = pcall(function() p:FireServer("TrashUnit", pick) end) or ok end
+        end
+    end)
+    if ok then
+        summerHotbarRuntime.lastTrash = tick()
+        print("[SUMMER HOTBAR] Hotbar full 6 tome, trashed random tome slot " .. tostring(pick) .. " to fish for unit")
+    else
+        warn("[SUMMER HOTBAR] Failed to trash tome slot " .. tostring(pick))
+    end
+    return true
 end
 local function summerIsPlacing()
     local ok, placing = pcall(function() return expeditionPeek(Shared.PlacingUnitStates) end)
@@ -12055,6 +12098,7 @@ task.spawn(function()
         local gameState, parameters = summerHotbarGameState()
         if appConfig.summerHotbarEnabled and gameState and summerMacroFinished() then
             local ok, err = xpcall(function()
+                if summerTrashRandomTome() then return end
                 summerTryPlaceUnit()
                 if expeditionPeek(parameters.EventId) == "Summer2026Event" then summerTryUseItem() end
             end, debug.traceback)
