@@ -427,6 +427,7 @@ if not _G.ReplicaInterceptorActive then
 end
 local appConfig = {
     Language = "English",
+    modskinEnabled = false,
     modskinSelectedAoEColor = "AOEColorSunshine",
     autoSummonEnabled = false,
     autoSummonBanners = {},
@@ -508,7 +509,7 @@ if makefolder then
     if not isfolder(macrosFolderPath) then makefolder(macrosFolderPath) end
 end
 local lobbyConfigKeys = {
-    "Language", "modskinSelectedAoEColor",
+    "Language", "modskinEnabled", "modskinSelectedAoEColor",
     "autoSummonEnabled", "autoSummonBanners", "autoSummonUnits", "autoSummonAmount", "autoFishingEnabled",
     "QuestAuto", "storyMapMacros",
     "autoChallengeEnabled", "autoDailyChallengeEnabled", "challengeAutoSelectedSlots", "challengeMapMacros", "challengeActiveTarget", "challengeSkippedSlots",
@@ -715,12 +716,23 @@ if appConfig.expeditionScrapCraftPending then
     appConfig.LobbyMaintenance.Phase = "Queued"
 end
 local englishTranslations = {
+    ["Enable Mod Skin"] = "Enable Mod Skin",
     ["Ngôn ngữ"] = "Language",
     ["Đã lưu ngôn ngữ. Hãy chạy lại script để cập nhật toàn bộ giao diện."] = "Language saved. Rerun the script to update the full UI.",
     ["Thay đổi màu sắc vòng quét AoE (Range & Hitbox Indicator) theo thời gian thực cho tất cả Unit.\nClient-side, không tiêu tốn vật phẩm."] = "Changes every Unit's AoE range and hitbox indicator color in real time.\nClient-side only; no items are consumed.",
     ["Chọn màu AoE Indicator"] = "Select AoE Indicator Color",
     ["Chọn 1 trong 13 màu sắc AoE nâng cấp."] = "Choose one of 13 enhanced AoE colors.",
     ["Đã đổi màu AoE thành:"] = "AoE color changed to:",
+    ["Sau khi Macro xong: đặt MockUnit ngẫu nhiên gần đường quái, tạo phantom khi thiếu Yen, dùng Fish và Tome ở Summer Siege."] = "After the Macro finishes: place a random MockUnit near the enemy path, create phantoms when Yen is insufficient, and use Fish and Tomes in Summer Siege.",
+    ["Mirror Fish (Fish4) - Unit cần clone"] = "Mirror Fish (Fish4) - Unit to Clone",
+    ["Chọn unit để Fish4 clone. Nếu unit chưa đặt thì sẽ chọn random unit đã đặt."] = "Select the Unit for Fish4 to clone. If it has not been placed, a random placed Unit will be selected.",
+    ["Bật Auto Golden Hour"] = "Enable Auto Golden Hour",
+    ["Ưu tiên map Golden Hour hiện tại nếu phần thưởng 30 phút này chưa nhận."] = "Prioritize the current Golden Hour Map if its 30-minute reward has not been claimed.",
+    ["Bật Auto Nhật Thực / Nguyệt Thực"] = "Enable Auto Solar / Lunar Eclipse",
+    ["Tự chạy Eclipsed Infinite hiện tại khi quest Eclipse còn khả dụng."] = "Automatically runs the current Eclipsed Infinite while the Eclipse quest is available.",
+    ["Golden Hour chạy Act cuối và dùng Macro riêng cho từng map."] = "Golden Hour runs the final Act and uses a separate Macro for each Map.",
+    ["Eclipse chạy Infinite hiện tại và dùng Macro riêng cho từng map."] = "Eclipse runs the current Infinite and uses a separate Macro for each Map.",
+    ["Auto Fishing error; xem console để biết chi tiết."] = "Auto Fishing error; see the console for details.",
     ["Import Macro từ link"] = "Import Macro from Link",
     ["Chỉ mục được tick sẽ ghi đè"] = "Only checked entries will be overwritten",
     ["Chọn tất cả"] = "Select All",
@@ -1008,7 +1020,10 @@ local englishTranslations = {
     ["Đang chờ JoinLock cũ hết hạn."] = "Waiting for the previous JoinLock to expire.",
     ["Scheduler chưa tạo được JoinValue."] = "The scheduler could not create a JoinValue.",
     ["Đang ở Lobby..."] = "In the Lobby...",
-    ["Không chọn"] = "None",
+    ["Không chọn"] = "None (disabled)",
+    ["(Không có)"] = "(None)",
+    ["(Không có Map)"] = "(No Maps)",
+    ["Không có Act"] = "No Act",
     ["Chưa chọn building."] = "No building selected.",
     ["Đang chờ rewards"] = "Waiting for rewards",
     ["Pause: SpriteGrey có nguy cơ đầy"] = "Paused: SpriteGrey may become full",
@@ -1107,8 +1122,136 @@ local englishTranslations = {
     ["Đang đổi map trực tiếp (không retry Restart): %s"] = "Changing maps directly (without retrying Restart): %s",
     ["Cooldown Join còn %.1fs."] = "Join cooldown: %.1fs remaining.",
     ["Sẵn sàng gửi queue: %s"] = "Ready to submit queue: %s",
+    ["Config chứa khóa không được hỗ trợ: "] = "Config contains an unsupported key: ",
+    ["Đã hủy đổi map: Challenge hiện tại vẫn đang chạy."] = "Map switch canceled: the current Challenge is still running.",
+    ["Không tìm được map mới; fallback về Lobby."] = "Could not find a new Map; returning to the Lobby as a fallback.",
+    ["Đổi map đã vào đúng mode/increment; map replica đang tải."] = "The Map switch entered the correct mode/increment; the Map replica is loading.",
+    ["Đã vào game increment mới; dừng retry để tránh Restart lặp."] = "Entered a new game increment; stopping retries to prevent repeated Restarts.",
+    ["Đổi map không được xác nhận; fallback về Lobby, không tự Restart lại."] = "The Map switch was not confirmed; returning to the Lobby without another automatic Restart.",
+    ["Unit không còn trong UnitData; đã dừng an toàn."] = "The Unit is no longer in UnitData; stopped safely.",
+    ["Pause: Unit đang Locked/Equipped/Favorited/Training"] = "Paused: Unit is Locked/Equipped/Favorited/Training",
+    ["Uncertain: replica thay đổi ngoài dự kiến"] = "Uncertain: the replica changed unexpectedly",
+    ["Uncertain: chưa xác nhận request, không tự gửi lại"] = "Uncertain: request was not confirmed and will not be resent automatically",
+    ["Uncertain: UnitData không khớp journal, đã khóa request"] = "Uncertain: UnitData does not match the journal; requests were locked",
+    ["Đã hoàn thành 4 roll và hết Potential."] = "Completed 4 rolls and exhausted the Potential.",
+    ["Cả 3 stat đã đạt; dừng vì game không cho lock cả 3."] = "All 3 stats reached their targets; stopped because the game cannot lock all three.",
+    ["Uncertain: request lỗi, không tự gửi lại"] = "Uncertain: request failed and will not be resent automatically",
+    ["Đã nhận / chưa mở"] = "Claimed / not active",
+    ["Quest không khả dụng"] = "Quest unavailable",
+    ["Đang chờ automation ưu tiên cao hơn hoàn tất..."] = "Waiting for higher-priority automation to finish...",
+    ["Event bị thua; đang thử lại nếu còn khả dụng."] = "The event was lost; retrying if it is still available.",
+    ["Hết lượt ngày"] = "No daily attempts remaining",
+    ["Challenge đã kết thúc; chọn Challenge khác."] = "Challenge completed; selecting another Challenge.",
+    ["Regular Challenge đã sẵn sàng; đổi map trực tiếp."] = "Regular Challenge is ready; switching Maps directly.",
+    ["Đang chờ Golden Hour hoàn tất..."] = "Waiting for Golden Hour to finish...",
+    ["Restart đã xác nhận; chuẩn bị chạy Macro từ đầu..."] = "Restart confirmed; preparing to run the Macro from the beginning...",
+    ["Restart thất bại sau 3 lần; đang tiếp tục trận hiện tại."] = "Restart failed after 3 attempts; continuing the current match.",
+    ["chờ claim"] = "waiting to claim",
+    ["Không còn Quest map; đang về Lobby để làm Summon cuối cùng."] = "No Quest Maps remain; returning to the Lobby for the final Summon objective.",
+    ["Làm nhiệm vụ Summon cuối cùng"] = "Complete the final Summon objective",
+    ["Reference Quest stale vì category chưa tải; đã nhường automation thấp hơn."] = "The Quest reference became stale because its category did not load; yielding to lower-priority automation.",
+    ["Daily / Weekly đã reset."] = "Daily / Weekly Quests have reset.",
+    ["Mục tiêu Quest đã hoàn thành; chọn map tiếp theo."] = "Quest target completed; selecting the next Map.",
+    ["Server đã xác nhận đủ Infinite Wave cho Quest."] = "The server confirmed enough Infinite Waves for the Quest.",
+    ["Quest Challenge bị thua; chuyển slot khác."] = "Quest Challenge was lost; switching to another slot.",
+    ["Quest Challenge đã kết thúc."] = "Quest Challenge completed.",
+    ["Quest đã hoàn thành; cần về Lobby để claim."] = "Quest completed; returning to the Lobby to claim it.",
+    ["Trận đã kết thúc/Auto Retry; tiếp tục Auto Quest."] = "The match ended/Auto Retried; continuing Auto Quest.",
 }
 local dynamicEnglishFragments = {
+    {"Hết lượt ngày", "No daily attempts remaining"},
+    {"Không khả dụng", "Unavailable"},
+    {"Mở lại sau", "Reopens in"},
+    {"chờ claim", "waiting to claim"},
+    {"Config chứa khóa không được hỗ trợ", "Config contains an unsupported key"},
+    {"Đã hủy Auto Join Map vì automation ưu tiên cao hơn vẫn chưa xong", "Auto Join Map was canceled because higher-priority automation is still unfinished"},
+    {"Auto Join cần đổi map", "Auto Join needs to switch Maps"},
+    {"Auto Join đổi map", "Auto Join needs to switch Maps"},
+    {"Đang Restart để chạy Macro từ đầu", "Restarting to run the Macro from the beginning"},
+    {"Đang chờ Restart xác nhận", "Waiting for Restart confirmation"},
+    {"Đã xử lý category sẵn sàng; đang chờ", "Processed the ready categories; waiting for"},
+    {"Quest đã hoàn thành; cần về Lobby để claim", "The Quest is complete; returning to the Lobby to claim it"},
+    {"Trận đã kết thúc/Auto Retry; tiếp tục Auto Quest", "The match ended/Auto Retried; continuing Auto Quest"},
+    {"Mục tiêu Quest đã hoàn thành; chọn map tiếp theo", "The Quest target is complete; selecting the next Map"},
+    {"Server đã xác nhận đủ Infinite Wave cho Quest", "The server confirmed enough Infinite Waves for the Quest"},
+    {"Quest Challenge bị thua; chuyển slot khác", "The Quest Challenge was lost; switching to another slot"},
+    {"Quest Challenge đã kết thúc", "Quest Challenge completed"},
+    {"Làm nhiệm vụ Summon cuối cùng", "Complete the final Summon objective"},
+    {"Daily / Weekly đã reset", "Daily / Weekly Quests have reset"},
+    {"Challenge đã kết thúc; chọn Challenge khác", "Challenge completed; selecting another Challenge"},
+    {"Regular Challenge đã sẵn sàng; đổi map trực tiếp", "Regular Challenge is ready; switching Maps directly"},
+    {"Challenge bị thua; đã skip slot", "The Challenge was lost; the slot was skipped"},
+    {"Challenge không có Macro; đã skip slot", "Challenge has no Macro; the slot was skipped"},
+    {"đã skip mode này đến lần reset tiếp theo", "this mode was skipped until the next reset"},
+    {"đã skip slot", "the slot was skipped"},
+    {"chọn Challenge khác", "selecting another Challenge"},
+    {"và đang đổi slot", "and switching slots"},
+    {"Đang chờ server cập nhật kết quả", "Waiting for the server to update the result of"},
+    {"Đang ở trận không thuộc Auto", "The current match is not controlled by Auto"},
+    {"đã sẵn sàng; đổi map trực tiếp", "is ready; switching Maps directly"},
+    {"Event bị thua; đang thử lại nếu còn khả dụng", "The event was lost; retrying if still available"},
+    {"Đã hoàn tất", "Completed"},
+    {"Quest không khả dụng", "Quest unavailable"},
+    {"Đã nhận / chưa mở", "Claimed / not active"},
+    {"Không có", "No"},
+    {"khả dụng", "is available"},
+    {"Sẵn sàng", "Ready"},
+    {"Unit đang Locked/Equipped/Favorited/Training", "Unit is Locked/Equipped/Favorited/Training"},
+    {"replica thay đổi ngoài dự kiến", "the replica changed unexpectedly"},
+    {"UnitData không khớp journal, đã khóa request", "UnitData does not match the journal; the request was locked"},
+    {"Giữ ", "Keeping "},
+    {"cần 1 StatReroll và", "requires 1 StatReroll and"},
+    {"request lỗi", "request failed"},
+    {"không rõ", "unknown"},
+    {" | chờ ", " | waiting for "},
+    {"cho Daily / Weekly", "for Daily / Weekly"},
+    {"để dùng Gold cho Quest", "to spend Gold for the Quest"},
+    {"chưa tải; đã bỏ target stale và nhường automation thấp hơn", "has not loaded; discarded the stale target and yielded to lower-priority automation"},
+    {"tải trước khi tiếp tục target Quest", "to load before continuing the Quest target"},
+    {"cho Quest", "for the Quest"},
+    {"chưa tải sau 15s; tạm nhường Challenge / Auto Join", "did not load within 15 seconds; temporarily yielding to Challenge / Auto Join"},
+    {" tải, giữ khóa Auto Join Map", " to load while holding the Auto Join Map lock"},
+    {"Đổi map trực tiếp hoàn tất", "Direct Map switch complete"},
+    {"Đang chọn event tiếp theo", "Selecting the next event"},
+    {"Đang chọn map tiếp theo", "Selecting the next Map"},
+    {"Đang claim", "Claiming"},
+    {"Đang mở Geode: gửi", "Opening Geodes: sent"},
+    {"Đang gửi roll", "Sending roll"},
+    {"Đã xác nhận roll", "Confirmed roll"},
+    {"Đã kết thúc Regular Challenge", "Completed Regular Challenge"},
+    {"Đã skip", "Skipped"},
+    {"Đã xong", "Completed"},
+    {"Đang vào", "Joining"},
+    {"Đang retry", "Retrying"},
+    {"Đang Summon", "Summoning"},
+    {"Đang mua", "Buying"},
+    {"Đang chạy", "Running"},
+    {"Ưu tiên Quest Challenge", "Prioritizing Quest Challenge"},
+    {"Ưu tiên Regular Challenge", "Prioritizing Regular Challenge"},
+    {"Ưu tiên Quest", "Prioritizing Quest"},
+    {"Ưu tiên", "Prioritizing"},
+    {"Không khả dụng", "Unavailable"},
+    {"Không còn", "No remaining"},
+    {"không có Macro", "has no Macro"},
+    {"chưa chọn Macro", "has no selected Macro"},
+    {"không tự gửi lại", "will not be resent automatically"},
+    {"chưa xác nhận request", "request was not confirmed"},
+    {"đang cooldown", "is on cooldown"},
+    {"mở lại sau", "reopens in"},
+    {"đang tắt", "is disabled"},
+    {"đang nhường automation khác", "yielding to other automation"},
+    {"Đang nhường Auto Join Map", "Yielding to Auto Join Map"},
+    {"đang chờ game Auto Retry", "waiting for the game's Auto Retry"},
+    {"đang chờ server cập nhật", "waiting for the server to update"},
+    {"đang tiếp tục trận hiện tại", "continuing the current match"},
+    {"lỗi 3 lần liên tiếp; đã tắt để mở khóa scheduler", "failed 3 consecutive times and was disabled to unlock the scheduler"},
+    {"không hoàn tất sau 45 giây; đã mở khóa Auto Join", "did not complete within 45 seconds; Auto Join was unlocked"},
+    {"ngoài mục tiêu; đã dừng unit", "outside the targets; stopped this Unit"},
+    {"chưa đủ mục tiêu", "has not reached its target"},
+    {"đến Wave", "through Wave"},
+    {"lượt", "attempts"},
+    {"giữ khóa Auto Join Map", "holding the Auto Join Map lock"},
+    {"xem console để biết chi tiết", "see the console for details"},
     {"Đang chờ dữ liệu", "Waiting for data"},
     {"Đang tải link", "Downloading link"},
     {"Đang khởi động lại ván đấu", "Restarting the match"},
@@ -1162,7 +1305,9 @@ local function localizeText(value)
     if appConfig.Language ~= "English" or type(value) ~= "string" then return value end
     local exact = englishTranslations[value]
     if exact then return exact end
-    local localized = value
+    local localized = value:gsub("[^\n]+", function(line)
+        return englishTranslations[line] or line
+    end)
     for _, replacement in ipairs(dynamicEnglishFragments) do
         localized = replacePlain(localized, replacement[1], replacement[2])
     end
@@ -1441,51 +1586,103 @@ table.sort(expeditionJoinOptions, function(left, right) return left.Label < righ
 gamemodesMap["Expedition"] = nil
 local cachedFallbackMapName = ""
 local cachedFallbackActName = ""
-local function getExpeditionMapProgress()
-    local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
-    if not playerGui then return nil end
-    for _, object in ipairs(playerGui:GetDescendants()) do
-        if object:IsA("TextLabel") and object.Visible then
-            local current, total = object.Text:match("Map Progress%s+(%d+)%s*/%s*(%d+)")
-            if current and total then return tonumber(current), tonumber(total) end
+getgenv().AnimeExpeditionsGuiScanCache = {
+    mapProgress = nil,
+    mapProgressAt = 0,
+    matchesLabel = nil,
+    matchesInitialScanDone = false,
+    itemTargeting = false,
+    itemTargetingAt = 0,
+    teleportVisible = false,
+    teleportCheckedAt = 0,
+}
+getgenv().guiScanCache = getgenv().AnimeExpeditionsGuiScanCache
+getgenv().AnimeExpeditionsGetGuiDescendants = function(playerGui)
+    local result = {}
+    if not playerGui then return result end
+    for _, root in ipairs(playerGui:GetChildren()) do
+        if root:IsA("LayerCollector") then
+            for _, descendant in ipairs(root:GetDescendants()) do table.insert(result, descendant) end
         end
     end
-    return nil
+    return result
 end
-local function getSessionMatchesPlayed()
+getgenv().getGuiDescendants = getgenv().AnimeExpeditionsGetGuiDescendants
+local function getExpeditionMapProgress()
+    if tick() - guiScanCache.mapProgressAt < 1 then
+        local progress = guiScanCache.mapProgress
+        return progress and progress[1], progress and progress[2]
+    end
+    guiScanCache.mapProgressAt = tick()
+    guiScanCache.mapProgress = nil
     local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
     if not playerGui then return nil end
-    for _, label in ipairs(playerGui:GetDescendants()) do
-        if label:IsA("TextLabel") and label.Visible and label.Text:lower():find("matches played", 1, true) then
-            local headingCenter = label.AbsolutePosition.X + label.AbsoluteSize.X / 2
-            local bestValue, bestScore
-            local root = label.Parent
-            for _ = 1, 2 do
-                if not root then break end
-                for _, candidate in ipairs(root:GetDescendants()) do
-                    if candidate:IsA("TextLabel") and candidate.Visible and candidate ~= label then
-                        local value = tonumber(candidate.Text:gsub(",", ""):match("^%s*(%d+)%s*$"))
-                        if value then
-                            local candidateCenter = candidate.AbsolutePosition.X + candidate.AbsoluteSize.X / 2
-                            local score = math.abs(candidateCenter - headingCenter)
-                            if not bestScore or score < bestScore then
-                                bestValue, bestScore = value, score
-                            end
-                        end
-                    end
-                end
-                if bestValue ~= nil then return bestValue end
-                root = root.Parent
+    for _, object in ipairs(getGuiDescendants(playerGui)) do
+        if object:IsA("TextLabel") and object.Visible then
+            local current, total = object.Text:match("Map Progress%s+(%d+)%s*/%s*(%d+)")
+            if current and total then
+                guiScanCache.mapProgress = {tonumber(current), tonumber(total)}
+                return guiScanCache.mapProgress[1], guiScanCache.mapProgress[2]
             end
         end
     end
     return nil
 end
+getgenv().AnimeExpeditionsCacheMatchesPlayedLabel = function(heading)
+    if not heading or not heading:IsA("TextLabel") or not heading.Text:lower():find("matches played", 1, true) then return end
+    local headingCenter = heading.AbsolutePosition.X + heading.AbsoluteSize.X / 2
+    local bestLabel, bestScore
+    local root = heading.Parent
+    for _ = 1, 2 do
+        if not root then break end
+        for _, candidate in ipairs(root:GetDescendants()) do
+            if candidate:IsA("TextLabel") and candidate ~= heading then
+                local value = tonumber(candidate.Text:gsub(",", ""):match("^%s*(%d+)%s*$"))
+                if value then
+                    local score = math.abs(candidate.AbsolutePosition.X + candidate.AbsoluteSize.X / 2 - headingCenter)
+                    if not bestScore or score < bestScore then bestLabel, bestScore = candidate, score end
+                end
+            end
+        end
+        if bestLabel then guiScanCache.matchesLabel = bestLabel return end
+        root = root.Parent
+    end
+end
+getgenv().cacheMatchesPlayedLabel = getgenv().AnimeExpeditionsCacheMatchesPlayedLabel
+local function getSessionMatchesPlayed()
+    local valueLabel = guiScanCache.matchesLabel
+    if valueLabel and valueLabel.Parent then
+        return tonumber(valueLabel.Text:gsub(",", ""):match("^%s*(%d+)%s*$"))
+    end
+    if guiScanCache.matchesInitialScanDone then return nil end
+    guiScanCache.matchesInitialScanDone = true
+    local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+    if not playerGui then return nil end
+    for _, label in ipairs(getGuiDescendants(playerGui)) do
+        cacheMatchesPlayedLabel(label)
+        if guiScanCache.matchesLabel then return getSessionMatchesPlayed() end
+    end
+    return nil
+end
+do
+    local previous = getgenv().AnimeExpeditionsMatchesPlayedConnection
+    if previous then previous:Disconnect() end
+    local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+    if playerGui then
+        getgenv().AnimeExpeditionsMatchesPlayedConnection = playerGui.DescendantAdded:Connect(function(descendant)
+            if descendant:IsA("TextLabel") then task.defer(cacheMatchesPlayedLabel, descendant) end
+        end)
+    end
+end
 local function isExpeditionItemTargeting()
+    if tick() - guiScanCache.itemTargetingAt < 0.5 then return guiScanCache.itemTargeting end
+    guiScanCache.itemTargetingAt = tick()
+    guiScanCache.itemTargeting = false
     local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
     if not playerGui then return false end
-    for _, object in ipairs(playerGui:GetDescendants()) do
+    for _, object in ipairs(getGuiDescendants(playerGui)) do
         if object:IsA("TextLabel") and object.Visible and object.Text:match("^Apply .- Tome$") then
+            guiScanCache.itemTargeting = true
             return true
         end
     end
@@ -2042,10 +2239,17 @@ do
     local savedColorID = tostring(appConfig.modskinSelectedAoEColor or "")
     if not AOE_COLOR_BY_ID[savedColorID] then savedColorID = "AOEColorSunshine" end
     appConfig.modskinSelectedAoEColor = savedColorID
+    appConfig.modskinEnabled = appConfig.modskinEnabled == true
+    modskinState.Enabled = appConfig.modskinEnabled
     modskinState.SelectedID = savedColorID
-    if type(modskinState.IndicatorConnections) ~= "table" then
-        modskinState.IndicatorConnections = setmetatable({}, {__mode = "k"})
+    if modskinState.AnimationConnection then
+        modskinState.AnimationConnection:Disconnect()
     end
+    for _, record in pairs(type(modskinState.IndicatorConnections) == "table" and modskinState.IndicatorConnections or {}) do
+        if record.Render then record.Render:Disconnect() end
+        if record.Destroying then record.Destroying:Disconnect() end
+    end
+    modskinState.IndicatorConnections = setmetatable({}, {__mode = "k"})
 
     local RunService = game:GetService("RunService")
     local function selectedColorInfo()
@@ -2060,54 +2264,91 @@ do
             or indicator:FindFirstChildWhichIsA("BasePart", true)
     end
     local function enhanceIndicatorVisual(indicator)
-        if typeof(indicator) ~= "Instance" then return end
+        if not modskinState.Enabled or typeof(indicator) ~= "Instance" then return end
         local connections = modskinState.IndicatorConnections
         local existing = connections[indicator]
-        if existing and existing.Render and existing.Render.Connected then return end
-        if existing then
-            if existing.Render then existing.Render:Disconnect() end
-            if existing.Destroying then existing.Destroying:Disconnect() end
-            connections[indicator] = nil
-        end
+        if existing then return end
 
-        local record = {}
+        local gradient, visual = findVisual(indicator)
+        local record = {Gradient = gradient, Visual = visual}
+        if gradient then
+            record.Original = {Color = gradient.Color, Rotation = gradient.Rotation, Transparency = gradient.Transparency}
+        elseif visual and visual:IsA("GuiObject") then
+            record.Original = {BackgroundColor3 = visual.BackgroundColor3, BackgroundTransparency = visual.BackgroundTransparency}
+        elseif visual and visual:IsA("BasePart") then
+            record.Original = {Color = visual.Color, Material = visual.Material, Transparency = visual.Transparency}
+        end
         connections[indicator] = record
         local function cleanup()
             if connections[indicator] ~= record then return end
             connections[indicator] = nil
-            if record.Render and record.Render.Connected then record.Render:Disconnect() end
             if record.Destroying and record.Destroying.Connected then record.Destroying:Disconnect() end
         end
         record.Destroying = indicator.Destroying:Connect(cleanup)
-        record.Render = RunService.RenderStepped:Connect(function()
-            if not indicator.Parent then cleanup() return end
-            local gradient, visual = findVisual(indicator)
-            local colorInfo = selectedColorInfo()
-            local currentID = colorInfo.ID
-            local t = os.clock()
-            local pulse = (math.sin(t * 3.5) + 1) / 2
-            local primaryColor = colorInfo.Color
-            local secondaryColor = colorInfo.Color
-            if currentID == "AOEColorRainbow" then
-                local hue = (t * 0.15) % 1
-                primaryColor = Color3.fromHSV(hue, 0.85, 1)
-                secondaryColor = Color3.fromHSV((hue + 0.3) % 1, 0.85, 1)
-            end
-            if gradient then
-                gradient.Color = ColorSequence.new(primaryColor, secondaryColor)
-                gradient.Rotation = (t * (currentID == "AOEColorRainbow" and 45 or 30)) % 360
-                gradient.Transparency = NumberSequence.new(0.05 + pulse * 0.15, 0.3 + pulse * 0.2)
-            elseif visual and visual:IsA("GuiObject") then
-                visual.BackgroundColor3 = primaryColor
-                visual.BackgroundTransparency = 0.15 + pulse * 0.2
-            elseif visual and visual:IsA("BasePart") then
-                visual.Color = primaryColor
-                visual.Material = Enum.Material.Neon
-                visual.Transparency = 0.15 + pulse * 0.25
-            end
-        end)
     end
 
+    local function restoreIndicators()
+        for indicator, record in pairs(modskinState.IndicatorConnections) do
+            pcall(function()
+                local original = record.Original
+                if original and record.Gradient then
+                    record.Gradient.Color = original.Color
+                    record.Gradient.Rotation = original.Rotation
+                    record.Gradient.Transparency = original.Transparency
+                elseif original and record.Visual and record.Visual:IsA("GuiObject") then
+                    record.Visual.BackgroundColor3 = original.BackgroundColor3
+                    record.Visual.BackgroundTransparency = original.BackgroundTransparency
+                elseif original and record.Visual and record.Visual:IsA("BasePart") then
+                    record.Visual.Color = original.Color
+                    record.Visual.Material = original.Material
+                    record.Visual.Transparency = original.Transparency
+                end
+            end)
+            if record.Destroying then record.Destroying:Disconnect() end
+            modskinState.IndicatorConnections[indicator] = nil
+        end
+    end
+
+    local animationElapsed = 0
+    modskinState.AnimationConnection = RunService.Heartbeat:Connect(function(deltaTime)
+        if not modskinState.Enabled then return end
+        animationElapsed += deltaTime
+        if animationElapsed < 0.05 then return end
+        animationElapsed = 0
+        if next(modskinState.IndicatorConnections) == nil then return end
+        local colorInfo = selectedColorInfo()
+        local currentID = colorInfo.ID
+        local t = os.clock()
+        local pulse = (math.sin(t * 3.5) + 1) / 2
+        local primaryColor = colorInfo.Color
+        local secondaryColor = primaryColor
+        if currentID == "AOEColorRainbow" then
+            local hue = (t * 0.15) % 1
+            primaryColor = Color3.fromHSV(hue, 0.85, 1)
+            secondaryColor = Color3.fromHSV((hue + 0.3) % 1, 0.85, 1)
+        end
+        local colorSequence = ColorSequence.new(primaryColor, secondaryColor)
+        local transparencySequence = NumberSequence.new(0.05 + pulse * 0.15, 0.3 + pulse * 0.2)
+        for indicator, record in pairs(modskinState.IndicatorConnections) do
+            if not indicator.Parent then
+                modskinState.IndicatorConnections[indicator] = nil
+                if record.Destroying then record.Destroying:Disconnect() end
+            elseif record.Gradient then
+                record.Gradient.Color = colorSequence
+                record.Gradient.Rotation = (t * (currentID == "AOEColorRainbow" and 45 or 30)) % 360
+                record.Gradient.Transparency = transparencySequence
+            elseif record.Visual and record.Visual:IsA("GuiObject") then
+                record.Visual.BackgroundColor3 = primaryColor
+                record.Visual.BackgroundTransparency = 0.15 + pulse * 0.2
+            elseif record.Visual and record.Visual:IsA("BasePart") then
+                record.Visual.Color = primaryColor
+                record.Visual.Material = Enum.Material.Neon
+                record.Visual.Transparency = 0.15 + pulse * 0.25
+            end
+        end
+    end)
+
+    local modskinToggle
     task.spawn(function()
         if modskinState.HooksInstalled then return end
         local ok, hookError = pcall(function()
@@ -2151,6 +2392,7 @@ do
             end
 
             local function customRange(p1, p2)
+                if not modskinState.Enabled and type(modskinState.OriginalRange) == "function" then return modskinState.OriginalRange(p1, p2) end
                 local scope = innerScope(p1, Rup[2], Rup[3], Rup[4])
                 local range = scope:KeyOf(p2.GameUnitData, "CurrentStats", "Range")
                 local selectedItem = scope:KeyOf(indicatorDependencies.Information.Items, selectedColorInfo().ID)
@@ -2164,6 +2406,7 @@ do
                 return indicator
             end
             local function customHitbox(p1, p2)
+                if not modskinState.Enabled and type(modskinState.OriginalHitbox) == "function" then return modskinState.OriginalHitbox(p1, p2) end
                 local scope = innerScope(p1, Hup[2], Hup[3], Hup[4])
                 local selectedItem = scope:KeyOf(indicatorDependencies.Information.Items, selectedColorInfo().ID)
                 local indicator = scope:HitboxIndicator({
@@ -2180,18 +2423,34 @@ do
             end
 
             if not modskinState.RangeHookInstalled then
-                hookfunction(RangeGameUnit, customRange)
+                modskinState.OriginalRange = hookfunction(RangeGameUnit, customRange)
                 modskinState.RangeHookInstalled = true
             end
             if not modskinState.HitboxHookInstalled then
-                hookfunction(HitboxGameUnit, customHitbox)
+                modskinState.OriginalHitbox = hookfunction(HitboxGameUnit, customHitbox)
                 modskinState.HitboxHookInstalled = true
             end
             modskinState.HooksInstalled = modskinState.RangeHookInstalled and modskinState.HitboxHookInstalled
         end)
-        if not ok then warn("[Mod Skin] AoE indicator hooks failed: " .. tostring(hookError)) end
+        if not ok then
+            appConfig.modskinEnabled = false
+            modskinState.Enabled = false
+            saveConfig()
+            if modskinToggle then task.defer(function() modskinToggle:SetValue(false) end) end
+            warn("[Mod Skin] AoE indicator hooks failed: " .. tostring(hookError))
+        end
     end)
 
+    modskinToggle = Tabs.Modskin:AddToggle("ModskinEnabled", {
+        Title = "Enable Mod Skin",
+        Description = "Enables custom AoE range and hitbox indicator colors.",
+        Default = appConfig.modskinEnabled,
+    }):OnChanged(function(enabled)
+        appConfig.modskinEnabled = enabled == true
+        modskinState.Enabled = appConfig.modskinEnabled
+        if not modskinState.Enabled then restoreIndicators() end
+        saveConfig()
+    end)
     Tabs.Modskin:AddDropdown("SelectAoEColor", {
         Title = "Chọn màu AoE Indicator",
         Description = "Chọn 1 trong 13 màu sắc AoE nâng cấp.",
@@ -2545,6 +2804,7 @@ Tabs.Eclipse:AddParagraph({
 })
 do
 local eventMapSets = {GoldenHourEvent = {}, EclipseEvent = {}}
+local noSelectionLabel = localizeText("Không chọn")
 for mapName in pairs((MapInfo.MapData and MapInfo.MapData.Story) or {}) do
     eventMapSets.GoldenHourEvent[tostring(mapName)] = true
 end
@@ -2558,7 +2818,7 @@ end
     for mapName in pairs(eventMapSets[modeName]) do table.insert(mapNames, mapName) end
     table.sort(mapNames)
     for _, mapName in ipairs(mapNames) do
-        local macroChoices = {"Không chọn"}
+        local macroChoices = {noSelectionLabel}
         for macroKey, macroData in pairs(appConfig.Macros) do
             local normalizedMacroKey = normalizeStageKey(macroKey)
             local belongsToMap = false
@@ -2575,8 +2835,8 @@ end
         end
         table.sort(macroChoices, function(left, right)
             if left == right then return false end
-            if left == "Không chọn" then return true end
-            if right == "Không chọn" then return false end
+            if left == noSelectionLabel then return true end
+            if right == noSelectionLabel then return false end
             return left < right
         end)
         local selectedMacro = appConfig.eventMapMacros[modeName][mapName]
@@ -2589,9 +2849,9 @@ end
             Title = displayMode .. " - " .. mapName,
             Values = macroChoices,
             Multi = false,
-            Default = selectedMacro or "Không chọn",
+            Default = selectedMacro or noSelectionLabel,
         }):OnChanged(function(value)
-            appConfig.eventMapMacros[modeName][mapName] = value ~= "Không chọn" and value or nil
+            appConfig.eventMapMacros[modeName][mapName] = value ~= noSelectionLabel and value or nil
             saveConfig()
         end)
     end
@@ -2687,8 +2947,9 @@ Tabs.Quest:AddParagraph({
     Content = "Một Macro cho mỗi map, dùng khi Quest chạy Story, Infinite, Mastery hoặc Regular Challenge.",
 })
 do
+local noSelectionLabel = localizeText("Không chọn")
 for _, mapName in ipairs(QuestAuto.Maps) do
-    local macroChoices = {"Không chọn"}
+    local macroChoices = {noSelectionLabel}
     for macroKey, macroData in pairs(appConfig.Macros) do
         local normalizedMacroKey = normalizeStageKey(macroKey)
         local belongsToMap = false
@@ -2705,8 +2966,8 @@ for _, mapName in ipairs(QuestAuto.Maps) do
     end
     table.sort(macroChoices, function(left, right)
         if left == right then return false end
-        if left == "Không chọn" then return true end
-        if right == "Không chọn" then return false end
+        if left == noSelectionLabel then return true end
+        if right == noSelectionLabel then return false end
         return left < right
     end)
     local selectedMacro = appConfig.QuestAuto.MapMacros[mapName]
@@ -2731,9 +2992,9 @@ for _, mapName in ipairs(QuestAuto.Maps) do
         Title = mapName,
         Values = macroChoices,
         Multi = false,
-        Default = selectedMacro or "Không chọn",
+        Default = selectedMacro or noSelectionLabel,
     }):OnChanged(function(value)
-        local nextMacro = value ~= "Không chọn" and value or nil
+        local nextMacro = value ~= noSelectionLabel and value or nil
         if appConfig.QuestAuto.MapMacros[mapName] ~= nextMacro then
             appConfig.QuestAuto.MapMacros[mapName] = nextMacro
             QuestAuto.Runtime.SkippedModes = {}
@@ -2751,13 +3012,14 @@ Tabs.Story:AddParagraph({
     Content = "Mỗi World chọn một Macro Story đã ghi ở bất kỳ Act nào. Macro tự chạy cho mọi Act của World này; chọn Không chọn để tắt. Quest và Challenge vẫn dùng Macro riêng.",
 })
 do
+local noSelectionLabel = localizeText("Không chọn")
 local storyMapNames = {}
 for mapName in pairs((MapInfo.MapData and MapInfo.MapData.Story) or {}) do
     table.insert(storyMapNames, tostring(mapName))
 end
 table.sort(storyMapNames)
 for _, mapName in ipairs(storyMapNames) do
-    local macroChoices = {"Không chọn"}
+    local macroChoices = {noSelectionLabel}
     local normalizedStoryMap = normalizeStageKey("Story_" .. mapName)
     for macroKey, macroData in pairs(appConfig.Macros) do
         local normalizedMacroKey = normalizeStageKey(macroKey)
@@ -2770,8 +3032,8 @@ for _, mapName in ipairs(storyMapNames) do
     end
     table.sort(macroChoices, function(left, right)
         if left == right then return false end
-        if left == "Không chọn" then return true end
-        if right == "Không chọn" then return false end
+        if left == noSelectionLabel then return true end
+        if right == noSelectionLabel then return false end
         return left < right
     end)
     local selectedMacro = appConfig.storyMapMacros[mapName]
@@ -2796,9 +3058,9 @@ for _, mapName in ipairs(storyMapNames) do
         Title = mapName,
         Values = macroChoices,
         Multi = false,
-        Default = selectedMacro or "Không chọn",
+        Default = selectedMacro or noSelectionLabel,
     }):OnChanged(function(value)
-        appConfig.storyMapMacros[mapName] = value ~= "Không chọn" and value or nil
+        appConfig.storyMapMacros[mapName] = value ~= noSelectionLabel and value or nil
         saveConfig()
     end)
 end
@@ -2862,13 +3124,14 @@ Tabs.Challenge:AddParagraph({
     Content = "Mỗi map chọn một Macro chỉ dùng khi Auto Challenge điều khiển trận.",
 })
 do
+local noSelectionLabel = localizeText("Không chọn")
 local challengeMapNames = {}
 for mapName in pairs((MapInfo.MapData and MapInfo.MapData.Story) or {}) do
     table.insert(challengeMapNames, tostring(mapName))
 end
 table.sort(challengeMapNames)
 for _, mapName in ipairs(challengeMapNames) do
-    local macroChoices = {"Không chọn"}
+    local macroChoices = {noSelectionLabel}
     for macroKey, macroData in pairs(appConfig.Macros) do
         local normalizedMacroKey = normalizeStageKey(macroKey)
         local belongsToMap = false
@@ -2887,8 +3150,8 @@ for _, mapName in ipairs(challengeMapNames) do
     end
     table.sort(macroChoices, function(left, right)
         if left == right then return false end
-        if left == "Không chọn" then return true end
-        if right == "Không chọn" then return false end
+        if left == noSelectionLabel then return true end
+        if right == noSelectionLabel then return false end
         return left < right
     end)
     local selectedMacro = appConfig.challengeMapMacros[mapName]
@@ -2913,9 +3176,9 @@ for _, mapName in ipairs(challengeMapNames) do
         Title = mapName,
         Values = macroChoices,
         Multi = false,
-        Default = selectedMacro or "Không chọn",
+        Default = selectedMacro or noSelectionLabel,
     }):OnChanged(function(value)
-        appConfig.challengeMapMacros[mapName] = value ~= "Không chọn" and value or nil
+        appConfig.challengeMapMacros[mapName] = value ~= noSelectionLabel and value or nil
         saveConfig()
     end)
 end
@@ -3040,6 +3303,9 @@ end
 task.wait()
 local AutoJoinStatusPara
 local function setupJoinAndTeamTabs()
+local noModesLabel = localizeText("(Không có)")
+local noMapsLabel = localizeText("(Không có Map)")
+local noActLabel = localizeText("Không có Act")
 Tabs.Join:AddParagraph({ Title = "Auto Join Map", Content = "Chọn Map và bật Auto Join để tự động ghép trận." })
 local CurrentJoinPara = Tabs.Join:AddParagraph({ Title = "Map Đang Chọn", Content = appConfig.AutoJoin ~= "" and appConfig.AutoJoin or "Chưa chọn Map nào" })
 AutoJoinStatusPara = Tabs.Join:AddParagraph({ Title = "Trạng Thái Join", Content = "Đang khởi tạo scheduler..." })
@@ -3130,7 +3396,7 @@ for mode, maps in pairs(MapInfo.MapData or {}) do
             for _, difficulty in ipairs(difficulties) do
                 entry.Modes[mode][difficulty.Label] = {Value = difficulty.Value, Acts = {}}
                 for _, act in ipairs(acts) do
-                    local actLabel = act ~= "" and (act:find("Act", 1, true) and act or "Act " .. act) or "Không có Act"
+                    local actLabel = act ~= "" and (act:find("Act", 1, true) and act or "Act " .. act) or noActLabel
                     entry.Modes[mode][difficulty.Label].Acts[actLabel] = act
                 end
             end
@@ -3154,7 +3420,7 @@ for _, entry in pairs(joinTree) do
     end
 end
 table.sort(allModes)
-local selectedMode = seenModes[selectedParts[1]] and selectedParts[1] or (seenModes.Story and "Story" or allModes[1] or "(Không có)")
+local selectedMode = seenModes[selectedParts[1]] and selectedParts[1] or (seenModes.Story and "Story" or allModes[1] or noModesLabel)
 local selectedWorldLabel = worldIdToLabel[selectedParts[2]]
 if not selectedWorldLabel or not (joinTree[selectedParts[2]] and joinTree[selectedParts[2]].Modes[selectedMode]) then
     selectedWorldLabel = nil
@@ -3163,19 +3429,19 @@ if not selectedWorldLabel or not (joinTree[selectedParts[2]] and joinTree[select
         if joinTree[mapId] and joinTree[mapId].Modes[selectedMode] then selectedWorldLabel = label break end
     end
 end
-selectedWorldLabel = selectedWorldLabel or "(Không có Map)"
+selectedWorldLabel = selectedWorldLabel or noMapsLabel
 local selectedWorldId = worldLabelToId[selectedWorldLabel]
 local selectedWorld = joinTree[selectedWorldId] or {Modes = {}}
 local selectedDifficultyLabel = "Default"
 for label, data in pairs(selectedWorld.Modes[selectedMode] or {}) do
     if tostring(data.Value or "") == tostring(selectedParts[4] or "") then selectedDifficultyLabel = label break end
 end
-local selectedActLabel = "Không có Act"
+local selectedActLabel = noActLabel
 local selectedDifficultyData = (selectedWorld.Modes[selectedMode] or {})[selectedDifficultyLabel]
 for label, value in pairs(selectedDifficultyData and selectedDifficultyData.Acts or {}) do
     if tostring(value or "") == tostring(selectedParts[3] or "") then selectedActLabel = label break end
 end
-local joinModeDropdown = Tabs.Join:AddDropdown("JoinGamemode", {Title = "Chế độ", Description = "Chọn chế độ trước để lọc danh sách World.", Values = #allModes > 0 and allModes or {"(Không có)"}, Multi = false, Default = selectedMode})
+local joinModeDropdown = Tabs.Join:AddDropdown("JoinGamemode", {Title = "Chế độ", Description = "Chọn chế độ trước để lọc danh sách World.", Values = #allModes > 0 and allModes or {noModesLabel}, Multi = false, Default = selectedMode})
 local joinWorldDropdown = Tabs.Join:AddDropdown("JoinWorld", {Title = "Story / World", Description = "Chỉ hiện map thuộc chế độ đã chọn.", Values = {selectedWorldLabel}, Multi = false, Default = selectedWorldLabel})
 local joinDifficultyDropdown = Tabs.Join:AddDropdown("JoinDifficulty", {Title = "Độ khó", Values = {selectedDifficultyLabel}, Multi = false, Default = selectedDifficultyLabel})
 local joinActDropdown = Tabs.Join:AddDropdown("JoinAct", {Title = "Map / Act", Values = {selectedActLabel}, Multi = false, Default = selectedActLabel})
@@ -3199,10 +3465,10 @@ local function refreshJoinControls(commitSelection)
         local mapId = worldLabelToId[label]
         if joinTree[mapId] and joinTree[mapId].Modes[mode] then table.insert(availableWorlds, label) end
     end
-    joinWorldDropdown:SetValues(#availableWorlds > 0 and availableWorlds or {"(Không có Map)"})
+    joinWorldDropdown:SetValues(#availableWorlds > 0 and availableWorlds or {noMapsLabel})
     local currentWorldId = worldLabelToId[joinWorldDropdown.Value]
     if not currentWorldId or not (joinTree[currentWorldId] and joinTree[currentWorldId].Modes[mode]) then
-        joinWorldDropdown:SetValue(availableWorlds[1] or "(Không có Map)")
+        joinWorldDropdown:SetValue(availableWorlds[1] or noMapsLabel)
     end
     local worldId = worldLabelToId[joinWorldDropdown.Value]
     local world = joinTree[worldId] or {Modes = {}}
@@ -3213,8 +3479,8 @@ local function refreshJoinControls(commitSelection)
     local difficultyLabel = joinDifficultyDropdown.Value
     local difficultyData = modeData[difficultyLabel] or {Value = "", Acts = {}}
     local acts = sortedJoinKeys(difficultyData.Acts)
-    joinActDropdown:SetValues(#acts > 0 and acts or {"Không có Act"})
-    if difficultyData.Acts[joinActDropdown.Value] == nil then joinActDropdown:SetValue(acts[1] or "Không có Act") end
+    joinActDropdown:SetValues(#acts > 0 and acts or {noActLabel})
+    if difficultyData.Acts[joinActDropdown.Value] == nil then joinActDropdown:SetValue(acts[1] or noActLabel) end
     local act = difficultyData.Acts[joinActDropdown.Value] or ""
     refreshingJoinControls = false
     if commitSelection and worldId and modeData[difficultyLabel] then setJoinMap(mode, worldId, act, difficultyData.Value) end
@@ -4013,16 +4279,18 @@ Tabs.Settings:AddInput("FPSCap", {
 })
 local fixLagState = {
     lighting = nil,
-    parts = {},
-    decals = {},
-    conn = nil,
-    renderingDisabled = false
+    effects = setmetatable({}, {__mode = "k"}),
+    renderingDisabled = false,
+    enabled = false,
 }
 local function SetFixLagEnabled(enabled)
     local lighting = game:GetService("Lighting")
     local RunService = game:GetService("RunService")
+    enabled = enabled == true
+    if fixLagState.enabled == enabled then return end
+    fixLagState.enabled = enabled
     if enabled then
-        for _, settingName in ipairs({"OwnUnitVFXEnabled", "AbilityVFXEnabled", "UnitAuraEnabled", "TraitAuraEnabled", "BuffIndicatorsEnabled", "DamageIndicatorsEnabled", "OtherUnitsEnabled", "OtherUnitVFXEnabled", "OwnUnitVFXEnabled", "AbilityVFXEnabled"}) do
+        for _, settingName in ipairs({"OwnUnitVFXEnabled", "AbilityVFXEnabled", "UnitAuraEnabled", "TraitAuraEnabled", "BuffIndicatorsEnabled", "DamageIndicatorsEnabled", "OtherUnitsEnabled", "OtherUnitVFXEnabled"}) do
             local ok, value = pcall(Actions.GetSettingValue, settingName)
             if ok and value == true then pcall(Actions.ChangeSetting, settingName, false) end
         end
@@ -4037,127 +4305,27 @@ local function SetFixLagEnabled(enabled)
         lighting.GlobalShadows = false
         lighting.FogEnd = 9e9
         lighting.Brightness = 1
-        pcall(function() RunService:Set3dRenderingEnabled(false) end)
-        fixLagState.renderingDisabled = true
-        local CollectionService = game:GetService("CollectionService")
-        local PlayersFolder = workspace:FindFirstChild("Players")
-        local UnitsFolder = workspace:FindFirstChild("Units")
-        local EnemiesFolder = workspace:FindFirstChild("Enemies")
-        local FollowersFolder = workspace:FindFirstChild("UnitFollowers")
-        local function shouldKeep(inst)
-            if not inst or not inst.Parent then return false end
-            if PlayersFolder and inst:IsDescendantOf(PlayersFolder) then return true end
-            if inst:IsDescendantOf(LocalPlayer.Character) then return true end
-            if inst:FindFirstAncestorWhichIsA("Model") and inst:FindFirstAncestorWhichIsA("Model"):FindFirstChildOfClass("Humanoid") and inst:IsDescendantOf(workspace) then
-                local mdl = inst:FindFirstAncestorWhichIsA("Model")
-                if mdl and mdl:FindFirstChild("HumanoidRootPart") and mdl.Parent == PlayersFolder then return true end
+        for _, effect in ipairs(lighting:GetDescendants()) do
+            if effect:IsA("PostEffect") then
+                fixLagState.effects[effect] = effect.Enabled
+                effect.Enabled = false
             end
-            if UnitsFolder and inst:IsDescendantOf(UnitsFolder) then return true end
-            if EnemiesFolder and inst:IsDescendantOf(EnemiesFolder) then return true end
-            if FollowersFolder and inst:IsDescendantOf(FollowersFolder) then return true end
-            if inst == workspace.CurrentCamera then return true end
-            if inst:IsDescendantOf(workspace.Map.Paths) then return true end
-            if inst:IsDescendantOf(workspace.Map.Path) then return true end
-            if pcall(function() return CollectionService:HasTag(inst, "Water") end) and CollectionService:HasTag(inst, "Water") then return true end
-            if pcall(function() return CollectionService:HasTag(inst, "GroundPlacement") end) and CollectionService:HasTag(inst, "GroundPlacement") then return true end
-            if pcall(function() return CollectionService:HasTag(inst, "HillPlacement") end) and CollectionService:HasTag(inst, "HillPlacement") then return true end
-            if inst.Name == "Water" and inst:IsA("BasePart") then return true end
-            if inst.Name == "Ground" or inst.Name == "Union" then
-                if inst:IsDescendantOf(workspace.Map) then return true end
-            end
-            if inst.Name == "Paths" or inst.Name == "Path" or inst.Name == "Map" or inst.Name == "Placement" or inst.Name == "PhysicalPath" then return true end
-            return false
         end
-        local function isStaticMapDecor(inst)
-            if shouldKeep(inst) then return false end
-            if UnitsFolder and inst:IsDescendantOf(UnitsFolder) then return false end
-            if EnemiesFolder and inst:IsDescendantOf(EnemiesFolder) then return false end
-            if inst:IsDescendantOf(workspace.Map) then return true end
-            if inst:IsA("Model") and inst.Parent == workspace.Map then return true end
-            return false
-        end
-        for _, v in ipairs(workspace:GetDescendants()) do
-            local isUnitOrEnemy = (UnitsFolder and v:IsDescendantOf(UnitsFolder)) or (EnemiesFolder and v:IsDescendantOf(EnemiesFolder))
-            if isUnitOrEnemy then
-                pcall(function()
-                    if v:IsA("BasePart") then v.Transparency=1 v.CanCollide=false v.CastShadow=false
-                    elseif v:IsA("ParticleEmitter") or v:IsA("Trail") or v:IsA("Beam") or v:IsA("Smoke") or v:IsA("Fire") then v.Enabled=false v:Destroy()
-                    elseif v:IsA("Decal") or v:IsA("Texture") or v:IsA("Highlight") or v:IsA("BillboardGui") then v:Destroy()
-                    elseif v:IsA("Model") then
-                        for _, p in ipairs(v:GetDescendants()) do if p:IsA("BasePart") then p.Transparency=1 p.CanCollide=false p.CastShadow=false end end
-                        for _, d in ipairs(v:GetDescendants()) do if d:IsA("ParticleEmitter") or d:IsA("Trail") or d:IsA("Beam") or d:IsA("Decal") or d:IsA("Texture") or d:IsA("Highlight") or d:IsA("BillboardGui") then pcall(function() d:Destroy() end) end end
-                    end
-                end)
-                continue
-            end
-            if shouldKeep(v) or shouldKeep(v.Parent) then continue end
-            pcall(function()
-                if v:IsA("ParticleEmitter") or v:IsA("Trail") or v:IsA("Beam") or v:IsA("Smoke") or v:IsA("Fire") or v:IsA("Sparkles") or v:IsA("PointLight") or v:IsA("SpotLight") or v:IsA("SurfaceLight") then
-                    v.Enabled = false
-                    v:Destroy()
-                elseif v:IsA("Model") then
-                    if isStaticMapDecor(v) then v:Destroy() else
-                        for _, d in ipairs(v:GetDescendants()) do
-                            if d:IsA("ParticleEmitter") or d:IsA("Trail") or d:IsA("Beam") then d.Enabled=false d:Destroy() end
-                            if d:IsA("Decal") or d:IsA("Texture") then d:Destroy() end
-                        end
-                        for _, p in ipairs(v:GetDescendants()) do if p:IsA("BasePart") then p.CastShadow=false end end
-                    end
-                elseif v:IsA("BasePart") then
-                    if isStaticMapDecor(v) then v:Destroy() else v.CastShadow=false v.Material=Enum.Material.SmoothPlastic end
-                elseif v:IsA("Decal") or v:IsA("Texture") then
-                    v:Destroy()
-                elseif v:IsA("MeshPart") or v:IsA("UnionOperation") then
-                    if isStaticMapDecor(v) then v:Destroy() end
-                end
-            end)
-        end
-        if fixLagState.conn then fixLagState.conn:Disconnect() end
-        fixLagState.conn = workspace.DescendantAdded:Connect(function(inst)
-            task.defer(function()
-                if not inst.Parent then return end
-                local isUnitOrEnemy = (UnitsFolder and inst:IsDescendantOf(UnitsFolder)) or (EnemiesFolder and inst:IsDescendantOf(EnemiesFolder))
-                if isUnitOrEnemy then
-                    pcall(function()
-                        if inst:IsA("BasePart") then inst.Transparency=1 inst.CanCollide=false inst.CastShadow=false
-                        elseif inst:IsA("ParticleEmitter") or inst:IsA("Trail") or inst:IsA("Beam") or inst:IsA("Smoke") or inst:IsA("Fire") then inst.Enabled=false inst:Destroy()
-                        elseif inst:IsA("Model") then for _, p in ipairs(inst:GetDescendants()) do if p:IsA("BasePart") then p.Transparency=1 p.CanCollide=false p.CastShadow=false end end end
-                    end)
-                    return
-                end
-                if shouldKeep(inst) then return end
-                pcall(function()
-                    if inst:IsA("ParticleEmitter") or inst:IsA("Trail") or inst:IsA("Beam") or inst:IsA("Smoke") or inst:IsA("Fire") then
-                        inst.Enabled=false inst:Destroy()
-                    elseif inst:IsA("Model") then
-                        if isStaticMapDecor(inst) then inst:Destroy() end
-                    elseif inst:IsA("BasePart") then
-                        if inst:GetAttribute("Water") or (pcall(function() return CollectionService:HasTag(inst,"Water") end) and CollectionService:HasTag(inst,"Water")) then return end
-                        if isStaticMapDecor(inst) then inst:Destroy() end
-                    end
-                end)
-            end)
-        end)
+        fixLagState.renderingDisabled = pcall(function() RunService:Set3dRenderingEnabled(false) end)
         return
     end
-    if fixLagState.conn then fixLagState.conn:Disconnect() fixLagState.conn = nil end
     if fixLagState.renderingDisabled then pcall(function() RunService:Set3dRenderingEnabled(true) end) fixLagState.renderingDisabled = false end
     if fixLagState.lighting then
         lighting.GlobalShadows = fixLagState.lighting.GlobalShadows
         lighting.FogEnd = fixLagState.lighting.FogEnd
         pcall(function() lighting.Brightness = fixLagState.lighting.Brightness end)
+        pcall(function() lighting.ExposureCompensation = fixLagState.lighting.ExposureCompensation end)
+        fixLagState.lighting = nil
     end
-    for obj, state in pairs(fixLagState.parts) do
-        if obj and obj.Parent then
-            obj.Material = state.Material
-            obj.Color = state.Color
-        end
+    for effect, wasEnabled in pairs(fixLagState.effects) do
+        if effect.Parent then effect.Enabled = wasEnabled end
     end
-    for obj, transparency in pairs(fixLagState.decals) do
-        if obj and obj.Parent then
-            obj.Transparency = transparency
-        end
-    end
+    fixLagState.effects = setmetatable({}, {__mode = "k"})
 end
 local VirtualUser = game:GetService("VirtualUser")
 local VirtualInputManager = game:GetService("VirtualInputManager")
@@ -4300,6 +4468,7 @@ blackFPS.Font = Enum.Font.GothamBold
 local blackFPSFrames = 0
 local blackFPSStartedAt = tick()
 game:GetService("RunService").RenderStepped:Connect(function()
+    if not blackFrame.Visible then return end
     blackFPSFrames += 1
     local now = tick()
     local elapsed = now - blackFPSStartedAt
@@ -4605,7 +4774,7 @@ local function addBlackReceivedReward(rewardType, asset, amount, shiny)
 end
 local function getBlackMatchesPlayed()
     local stateInfo = getGameStates()
-    return getSessionMatchesPlayed() or (stateInfo and stateInfo.SessionMatchesPlayed) or 0
+    return (stateInfo and stateInfo.SessionMatchesPlayed) or getSessionMatchesPlayed() or 0
 end
 local blackMatchesPlayed = getBlackMatchesPlayed()
 local function getBlackRewardMeta(asset)
@@ -5246,12 +5415,17 @@ getgenv().AnimeExpeditionsCoordinator.IsLobbyReady = function(self, stateInfo)
         self.LobbyObservedAt = nil
         return false
     end
-    for _, object in ipairs(LocalPlayer.PlayerGui:GetDescendants()) do
-        if object:IsA("TextLabel") and object.Visible and tostring(object.Text):lower():find("teleporting", 1, true) then
-            self.LobbyObservedAt = nil
-            return false
+    if tick() - guiScanCache.teleportCheckedAt >= 1 then
+        guiScanCache.teleportCheckedAt = tick()
+        guiScanCache.teleportVisible = false
+        for _, object in ipairs(getGuiDescendants(LocalPlayer:FindFirstChild("PlayerGui"))) do
+            if object:IsA("TextLabel") and object.Visible and tostring(object.Text):lower():find("teleporting", 1, true) then
+                guiScanCache.teleportVisible = true
+                break
+            end
         end
     end
+    if guiScanCache.teleportVisible then self.LobbyObservedAt = nil return false end
     local rawGameState = self:Peek(Dependencies.GameState)
     local rawPlayerState = self:Peek(Dependencies.GamePlayerState)
     local rawCurrent = type(rawGameState) == "table" and tostring(self:Peek(rawGameState.CurrentGameState) or "") or ""
@@ -5336,7 +5510,7 @@ getgenv().AnimeExpeditionsCoordinator.GetFuelState = function(self, selectedBuil
 end
 getgenv().AnimeExpeditionsCoordinator.FormatFuelTime = function(self, seconds)
     seconds = tonumber(seconds)
-    if not seconds then return "không rõ" end
+    if not seconds then return localizeText("không rõ") end
     seconds = math.max(0, math.floor(seconds))
     local days = math.floor(seconds / 86400)
     local hours = math.floor(seconds % 86400 / 3600)
@@ -5444,6 +5618,14 @@ getgenv().AnimeExpeditionsCoordinator.UpdateBuildingResourceDisplay = function(s
     if not force and tick() - (self.LastBuildingResourceDisplayAt or 0) < 1 then return end
     self.LastBuildingResourceDisplayAt = tick()
     if not self.BuildingResourceParagraph then return end
+    if not appConfig.ExpeditionAuto.autoClaimBuildingRewards and not appConfig.ExpeditionAuto.autoOpenGeodes
+        and not self.BuildingClaimPending and not self.GeodeBurst then
+        if not force and self.BuildingDisabledDisplayed then return end
+        self.BuildingDisabledDisplayed = true
+        safeSetParagraphDesc(self.BuildingResourceParagraph, localizeText("Trạng thái     : %s"):format(localizeText("Đã tắt")))
+        return
+    end
+    self.BuildingDisabledDisplayed = false
     local state = self:GetBuildingResourceState()
     local claim = self.BuildingClaimPending
     local burst = self.GeodeBurst
@@ -5464,8 +5646,9 @@ getgenv().AnimeExpeditionsCoordinator.UpdateBuildingResourceDisplay = function(s
     }, "\n"))
 end
 getgenv().AnimeExpeditionsCoordinator.RunBuildingResources = function(self, stateInfo)
-    if not self:IsLobbyReady(stateInfo) or self:HasMandatory() then return false end
     local config = appConfig.ExpeditionAuto
+    if not config.autoClaimBuildingRewards and not config.autoOpenGeodes and not self.BuildingClaimPending and not self.GeodeBurst then return false end
+    if not self:IsLobbyReady(stateInfo) or self:HasMandatory() then return false end
     local state = self:GetBuildingResourceState()
     if not state.Ready then return false end
     self.BuildingSkipped = self.BuildingSkipped or {}
@@ -5758,11 +5941,13 @@ getgenv().AnimeExpeditionsCoordinator.BeforeAutomation = function(self, stateInf
     end
     self.WasLobby = isLobby
     if isLobby then
-        local lobbyReady = self:IsLobbyReady(stateInfo)
         local preparationEnabled = appConfig.ExpeditionAuto.autoLobbyFuel or appConfig.autoShopEnabled
             or appConfig.autoCraftEnabled or appConfig.autoExpeditionCraftEnabled
             or appConfig.ExpeditionAuto.autoClaimBuildingRewards or appConfig.ExpeditionAuto.autoOpenGeodes
             or appConfig.ExpeditionAuto.autoTraining or appConfig.ExpeditionAuto.autoSkillTree
+            or appConfig.ExpeditionAuto.autoClaimQuestBoard or appConfig.AutoStatRoll.Enabled
+            or self.Return.Active or self:HasMandatory()
+        local lobbyReady = preparationEnabled and self:IsLobbyReady(stateInfo) or false
         if preparationEnabled and not lobbyReady and not self.LobbyPreflightReady then
             self.LobbyPreflightAt = self.LobbyPreflightAt or tick()
             if tick() - self.LobbyPreflightAt < 2 then
@@ -6246,6 +6431,7 @@ getgenv().AnimeExpeditionsCoordinator.CheckUtilityPending = function(self)
     return true
 end
 getgenv().AnimeExpeditionsCoordinator.RunLobbyUtility = function(self, stateInfo)
+    if not appConfig.ExpeditionAuto.autoTraining and not appConfig.ExpeditionAuto.autoSkillTree and not self.UtilityPending then return false end
     if not self:IsLobbyReady(stateInfo) or self:HasMandatory() then return false end
     self.UtilitySkipped = self.UtilitySkipped or {}
     if self:CheckUtilityPending() then return true end
@@ -6379,11 +6565,11 @@ getgenv().AnimeExpeditionsCoordinator.GetCraftableRecipe = function(self, asset,
     return nil
 end
 getgenv().AnimeExpeditionsCoordinator.RunCraftPreparation = function(self, stateInfo)
-    if not self:IsLobbyReady(stateInfo) then return false end
-    self.CraftSkipped = self.CraftSkipped or {}
     local normalEnabled = appConfig.autoCraftEnabled and type(appConfig.autoCraftItems) == "table" and #appConfig.autoCraftItems > 0
     local expeditionEnabled = appConfig.autoExpeditionCraftEnabled and type(appConfig.autoExpeditionCraftItems) == "table" and #appConfig.autoExpeditionCraftItems > 0
     if not normalEnabled and not expeditionEnabled then self.CraftPending = nil; return false end
+    if not self:IsLobbyReady(stateInfo) then return false end
+    self.CraftSkipped = self.CraftSkipped or {}
     if self.CraftPending and ((self.CraftPending.Station == "Crafting" and not normalEnabled) or (self.CraftPending.Station == "Armory Forge" and not expeditionEnabled)) then
         self.CraftPending = nil
     end
@@ -6552,6 +6738,17 @@ local function selectTimedEvent(eventState, requestedMode)
 end
 local function runTimedEventTick(stateInfo, canTakePriority, requestedMode)
     local directive = {BlockNormalJoin = false, JoinValue = nil}
+    local enabled = requestedMode == "GoldenHourEvent" and appConfig.autoGoldenHourEnabled or appConfig.autoEclipseEnabled
+    local eventName = requestedMode == "GoldenHourEvent" and "Golden Hour" or "Eclipse"
+    if not enabled then
+        local description = localizeText("Auto " .. eventName .. " đang tắt.")
+        setEventStatus(description, requestedMode)
+        if eventRuntime.LastDisplay[requestedMode] ~= description then
+            eventRuntime.LastDisplay[requestedMode] = description
+            safeSetParagraphDesc(requestedMode == "GoldenHourEvent" and goldenHourStatusPara or eclipseStatusPara, description)
+        end
+        return directive
+    end
     local eventState = getTimedEventState()
     local target = appConfig.eventActiveTarget
     if type(target) == "table" and target.Mode ~= requestedMode then target = nil end
@@ -6567,11 +6764,7 @@ local function runTimedEventTick(stateInfo, canTakePriority, requestedMode)
             saveConfig()
         end
     end
-    local enabled = requestedMode == "GoldenHourEvent" and appConfig.autoGoldenHourEnabled or appConfig.autoEclipseEnabled
-    local eventName = requestedMode == "GoldenHourEvent" and "Golden Hour" or "Eclipse"
-    if not enabled then
-        setEventStatus("Auto " .. eventName .. " đang tắt.", requestedMode)
-    elseif not stateInfo or stateInfo.CurrentGameState == "Lobby" then
+    if not stateInfo or stateInfo.CurrentGameState == "Lobby" then
         if canTakePriority then
             if target then
                 directive.BlockNormalJoin = true
@@ -7011,13 +7204,20 @@ local function runChallengeInGameTick(stateInfo, challengeState, canTakePriority
     end
 end
 local function runChallengeTick(stateInfo, canTakePriority)
-    local challengeState = getRegularChallengeState()
     local directive = {BlockNormalJoin = false, JoinValue = nil}
+    if not appConfig.autoChallengeEnabled and not appConfig.autoDailyChallengeEnabled then
+        local description = localizeText("Auto Daily / Regular Challenge đang tắt.")
+        setChallengeStatus(description)
+        if challengeRuntime.LastDisplay ~= description then
+            challengeRuntime.LastDisplay = description
+            safeSetParagraphDesc(challengeStatusPara, description)
+        end
+        return directive
+    end
+    local challengeState = getRegularChallengeState()
     local coordinator = getgenv().AnimeExpeditionsCoordinator
     local resolvingMap = coordinator and coordinator.MapSwitch and coordinator.MapSwitch.Phase == "Resolve"
-    if not appConfig.autoChallengeEnabled and not appConfig.autoDailyChallengeEnabled then
-        setChallengeStatus("Auto Daily / Regular Challenge đang tắt.")
-    elseif resolvingMap or not stateInfo or stateInfo.CurrentGameState == "Lobby" then
+    if resolvingMap or not stateInfo or stateInfo.CurrentGameState == "Lobby" then
         local selectedDaily = false
         if canTakePriority and appConfig.autoDailyChallengeEnabled then
             local dailyState = getRegularChallengeState("Daily")
@@ -7771,8 +7971,20 @@ function QuestAuto:RunInGame(stateInfo, snapshot)
     end
 end
 function QuestAuto:Tick(stateInfo)
-    local snapshot = self:Snapshot()
     local directive = {BlockNormalJoin = false, BlockNormalSummon = false, JoinValue = nil}
+    if not appConfig.QuestAuto.Enabled then
+        self.Runtime.InvalidSince = nil
+        self.Runtime.WaitingSince = nil
+        self.Runtime.WaitingMatchesPlayed = nil
+        local description = localizeText("Auto Quest đang tắt.")
+        self:SetStatus(description)
+        if self.Runtime.LastDisplay ~= description then
+            self.Runtime.LastDisplay = description
+            safeSetParagraphDesc(self.StatusParagraph, description)
+        end
+        return directive
+    end
+    local snapshot = self:Snapshot()
     if appConfig.QuestAuto.Enabled and not snapshot.Complete then
         directive.BlockNormalJoin = true
         directive.BlockNormalSummon = true
@@ -7788,12 +8000,7 @@ function QuestAuto:Tick(stateInfo)
         end
         if claimableQuest then break end
     end
-    if not appConfig.QuestAuto.Enabled then
-        self.Runtime.InvalidSince = nil
-        self.Runtime.WaitingSince = nil
-        self.Runtime.WaitingMatchesPlayed = nil
-        self:SetStatus("Auto Quest đang tắt.")
-    elseif self:ProcessPending(snapshot) then
+    if self:ProcessPending(snapshot) then
         directive.BlockNormalJoin = true
         directive.BlockNormalSummon = true
     elseif claimableQuest then
@@ -8370,20 +8577,24 @@ local lastStateInfo = nil
 local lastSentTime = 0
 local autoClaimTimes = {Quests = 0, Calendar = 0, Milestones = 0, Index = 0, Achievements = 0, Codes = 0, ExpeditionVoteActive = false, ExpeditionVotePrevious = false, ExpeditionVoteLastCheck = 0}
 local function teleportScreenVisible()
+    if tick() - guiScanCache.teleportCheckedAt < 1 then return guiScanCache.teleportVisible end
+    guiScanCache.teleportCheckedAt = tick()
+    guiScanCache.teleportVisible = false
     local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
     if not playerGui then return false end
-    for _, object in ipairs(playerGui:GetDescendants()) do
+    for _, object in ipairs(getGuiDescendants(playerGui)) do
         if object:IsA("TextLabel") and object.Visible
             and tostring(object.Text):lower():find("teleporting", 1, true) then
+            guiScanCache.teleportVisible = true
             return true
         end
     end
     return false
 end
 task.spawn(function()
-    while expeditionScriptIsCurrent() and task.wait(0.25) do
+    while expeditionScriptIsCurrent() and task.wait(0.5) do
         local schedulerOk, schedulerError = xpcall(function()
-        pcall(checkNewSummonedUnits)
+        if appConfig.webhookSummonEnabled and appConfig.WebhookUrl ~= "" then pcall(checkNewSummonedUnits) end
         local stateInfo = getGameStates()
         local coordinator = getgenv().AnimeExpeditionsCoordinator
         local mapSwitchBlocking = coordinator and coordinator:CheckMapSwitch(stateInfo) or false
@@ -8511,8 +8722,13 @@ task.spawn(function()
                         end
                     end
                 else
-                    setEventStatus("Đang chờ automation ưu tiên cao hơn hoàn tất...", modeName)
-                    updateEventDisplay(getTimedEventState(), modeName)
+                    local enabled = modeName == "GoldenHourEvent" and appConfig.autoGoldenHourEnabled or appConfig.autoEclipseEnabled
+                    if enabled then
+                        setEventStatus("Đang chờ automation ưu tiên cao hơn hoàn tất...", modeName)
+                        updateEventDisplay(getTimedEventState(), modeName)
+                    else
+                        directive = runTimedEventTick(stateInfo, false, modeName)
+                    end
                 end
                 return directive
             end
@@ -8545,8 +8761,12 @@ task.spawn(function()
                     end
                 end
             else
-                setChallengeStatus(questOwnsPriority and "Đang chờ Auto Quest hoàn tất..." or "Đang chờ Golden Hour hoàn tất...")
-                updateChallengeDisplay(getRegularChallengeState())
+                if appConfig.autoChallengeEnabled or appConfig.autoDailyChallengeEnabled then
+                    setChallengeStatus(questOwnsPriority and "Đang chờ Auto Quest hoàn tất..." or "Đang chờ Golden Hour hoàn tất...")
+                    updateChallengeDisplay(getRegularChallengeState())
+                else
+                    challengeDirective = runChallengeTick(stateInfo, false)
+                end
             end
             local challengeTarget = (appConfig.autoChallengeEnabled or appConfig.autoDailyChallengeEnabled) and appConfig.challengeActiveTarget or nil
             local challengeOwnsPriority = type(challengeTarget) == "table" and challengeTarget.Owner == "Challenge"
@@ -8675,9 +8895,17 @@ task.spawn(function()
             currentStageKey = skey
             local macroList = getMacroListForStage(skey, stateInfo)
             local macroCount = macroList and #macroList or 0
-            safeSetParagraphDesc(currentMacroPara, string.format(localizeText("Đang ở: %s\nSố lệnh Macro đã lưu: %d"), skey, macroCount))
+            local description = string.format(localizeText("Đang ở: %s\nSố lệnh Macro đã lưu: %d"), skey, macroCount)
+            if guiScanCache.macroDescription ~= description then
+                guiScanCache.macroDescription = description
+                safeSetParagraphDesc(currentMacroPara, description)
+            end
         else
-            safeSetParagraphDesc(currentMacroPara, "Đang ở Lobby...")
+            local description = localizeText("Đang ở Lobby...")
+            if guiScanCache.macroDescription ~= description then
+                guiScanCache.macroDescription = description
+                safeSetParagraphDesc(currentMacroPara, description)
+            end
             lastHasRunMacro = false
             isPlaying = false
         end
@@ -8906,7 +9134,10 @@ task.spawn(function()
             elseif effectiveAutoJoin then joinStatus = string.format(localizeText("Sẵn sàng gửi queue: %s"), tostring(effectiveAutoJoin))
             else joinStatus = "Scheduler chưa tạo được JoinValue."
             end
-            safeSetParagraphDesc(AutoJoinStatusPara, joinStatus)
+            if guiScanCache.joinStatus ~= joinStatus then
+                guiScanCache.joinStatus = joinStatus
+                safeSetParagraphDesc(AutoJoinStatusPara, joinStatus)
+            end
             if effectiveAutoJoin and not shopBlockedJoin and not craftBlockedJoin and not utilityBlockedJoin and not blockAutoJoinForScrapCraft
                 and not (coordinator and (coordinator:HasMandatory() or coordinator:IsTransitionBusy()))
                 and (joinOwner ~= nil or tick() >= (getgenv().AnimeExpeditionsAutoJoinCooldownUntil or 0))
@@ -9018,7 +9249,11 @@ task.spawn(function()
             end
             end
         else
-            safeSetParagraphDesc(AutoJoinStatusPara, string.format(localizeText("GameState chưa được nhận là Lobby: %s | %s"), tostring(stateInfo.CurrentGameState), tostring(stateInfo.Gamemode)))
+            local joinStatus = string.format(localizeText("GameState chưa được nhận là Lobby: %s | %s"), tostring(stateInfo.CurrentGameState), tostring(stateInfo.Gamemode))
+            if guiScanCache.joinStatus ~= joinStatus then
+                guiScanCache.joinStatus = joinStatus
+                safeSetParagraphDesc(AutoJoinStatusPara, joinStatus)
+            end
             if appConfig.autoJoinEnabled and appConfig.autoLeaveOnPlayerJoin and appConfig.autoJoinMode == "Start Instantly (Solo)" and stateInfo.CurrentGameState ~= "Lobby" and stateInfo.CurrentGameState ~= "Finished" then
                 if #game:GetService("Players"):GetPlayers() > 1 then
                     local lastAutoReturnTrigger = getgenv().lastAutoReturnTrigger or 0
@@ -10031,7 +10266,7 @@ local function expeditionVisibleGuiText()
     local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
     if not playerGui then return "" end
     local parts = {}
-    for _, object in ipairs(playerGui:GetDescendants()) do
+    for _, object in ipairs(getGuiDescendants(playerGui)) do
         if (object:IsA("TextLabel") or object:IsA("TextButton") or object:IsA("TextBox")) and expeditionGuiVisible(object) then
             local text = expeditionNormalizeText(object.Text)
             if text ~= "" then table.insert(parts, text) end
@@ -10047,7 +10282,7 @@ local function expeditionEncounterNPC()
         end
     end
     local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
-    for _, object in ipairs(playerGui and playerGui:GetDescendants() or {}) do
+    for _, object in ipairs(getGuiDescendants(playerGui)) do
         if (object:IsA("TextLabel") or object:IsA("TextButton")) and expeditionGuiVisible(object) then
             local label = expeditionNormalizeText(object.Text)
             for npc in pairs(expeditionEncounterChoices) do
@@ -10111,7 +10346,7 @@ end
 local function expeditionDicePromptState()
     local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
     if not playerGui then return nil, nil end
-    for _, object in ipairs(playerGui:GetDescendants()) do
+    for _, object in ipairs(getGuiDescendants(playerGui)) do
         if (object:IsA("TextLabel") or object:IsA("TextButton")) and expeditionGuiVisible(object) then
             local text = expeditionNormalizeText(object.Text)
             if text == "click anywhere to roll dice" then return "Roll", object:FindFirstAncestorWhichIsA("ScreenGui") end
@@ -11501,7 +11736,7 @@ local function expeditionTryContinue()
         if not statAnvilPopup or expeditionAnvilConfigured() then blocker = "Card đang mở" end
     end
     if not blocker and ExpeditionAuto.autoUseTome then
-        for _, object in ipairs(LocalPlayer.PlayerGui:GetDescendants()) do
+        for _, object in ipairs(getGuiDescendants(LocalPlayer:FindFirstChild("PlayerGui"))) do
             if object:IsA("TextLabel") and object.Visible and object.Text:match("^Apply .- Tome$") then blocker = "đang chọn target Tome" break end
         end
     end
@@ -12134,7 +12369,7 @@ for index = 1, 10 do
 end
 
 task.spawn(function()
-    while expeditionScriptIsCurrent() and task.wait(0.1) do
+    while expeditionScriptIsCurrent() and task.wait(0.5) do
         local captured = getgenv().ExpeditionAutoCapturedPosition
         if captured then
             getgenv().ExpeditionAutoCapturedPosition = nil
