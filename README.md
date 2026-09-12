@@ -18,6 +18,7 @@ The script has no key system, no paywall, and no user fee.
 - Auto Join Map with mode, world, difficulty, and act selection.
 - In-game macro recording, saving, optimization, and map-specific playback.
 - Auto Story, Daily/Weekly Quest, and Challenge with separate macros per map.
+- Auto Golden Hour and Eclipse for the current rotating map, with separate macros per map.
 - Auto Event support for Guess That Unit, Boss Bounty, and Dragon's Wish.
 - Auto Summon by banner, target unit, and summon amount.
 - Auto Shop and Auto Craft in the lobby.

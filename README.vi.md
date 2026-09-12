@@ -18,6 +18,7 @@ Script không có key system, không có paywall và không thu phí người d�
 - Auto Join Map với lựa chọn mode, world, difficulty và act.
 - Macro In-Game: ghi, lưu, tối ưu và tự chạy macro theo từng map.
 - Auto Story, Daily/Weekly Quest và Challenge với macro riêng theo map.
+- Auto Golden Hour và Eclipse theo map đang xoay, dùng macro riêng cho từng map.
 - Auto Event cho Guess That Unit, Boss Bounty và Dragon's Wish.
 - Auto Summon theo banner, unit mục tiêu và số lượt quay.
 - Auto Shop và Auto Craft trong lobby.

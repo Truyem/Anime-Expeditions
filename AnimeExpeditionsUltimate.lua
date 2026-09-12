@@ -443,6 +443,11 @@ local appConfig = {
     challengeMapMacros = {},
     challengeActiveTarget = nil,
     challengeSkippedSlots = {ResetKey = "", Slots = {}},
+    autoGoldenHourEnabled = false,
+    autoEclipseEnabled = false,
+    eventMapMacros = {GoldenHourEvent = {}, EclipseEvent = {}},
+    eventActiveTarget = nil,
+    goldenHourCompletedSeed = nil,
     AutoJoin = "",
     autoJoinEnabled = false,
     autoJoinTeamEnabled = false,
@@ -507,6 +512,7 @@ local lobbyConfigKeys = {
     "autoSummonEnabled", "autoSummonBanners", "autoSummonUnits", "autoSummonAmount", "autoFishingEnabled",
     "QuestAuto", "storyMapMacros",
     "autoChallengeEnabled", "autoDailyChallengeEnabled", "challengeAutoSelectedSlots", "challengeMapMacros", "challengeActiveTarget", "challengeSkippedSlots",
+    "autoGoldenHourEnabled", "autoEclipseEnabled", "eventMapMacros", "eventActiveTarget", "goldenHourCompletedSeed",
     "AutoJoin", "autoJoinEnabled", "autoJoinTeamEnabled", "autoJoinMode", "autoCraftEnabled", "autoCraftItems", "autoExpeditionCraftEnabled", "autoExpeditionCraftItems", "autoShopEnabled", "ShopSelections", "TeamSelections",
     "autoClaimQuests", "autoClaimBP", "autoClaimCalendar", "autoClaimMilestones", "autoClaimIndex", "autoClaimAchievements", "autoRedeemCodes", "hidePlayerNames", "fixLagEnabled", "fpsCap", "autoLeaveAfterMinutes", "autoLeaveAfterMinutesValue", "AutoStatRoll"
 }
@@ -640,6 +646,18 @@ if type(appConfig.challengeActiveTarget) == "table" then
 end
 appConfig.challengeSkippedSlots = type(appConfig.challengeSkippedSlots) == "table" and appConfig.challengeSkippedSlots or {ResetKey = "", Slots = {}}
 appConfig.challengeSkippedSlots.Slots = type(appConfig.challengeSkippedSlots.Slots) == "table" and appConfig.challengeSkippedSlots.Slots or {}
+appConfig.autoGoldenHourEnabled = appConfig.autoGoldenHourEnabled == true
+appConfig.autoEclipseEnabled = appConfig.autoEclipseEnabled == true
+appConfig.eventMapMacros = type(appConfig.eventMapMacros) == "table" and appConfig.eventMapMacros or {}
+appConfig.eventMapMacros.GoldenHourEvent = type(appConfig.eventMapMacros.GoldenHourEvent) == "table" and appConfig.eventMapMacros.GoldenHourEvent or {}
+appConfig.eventMapMacros.EclipseEvent = type(appConfig.eventMapMacros.EclipseEvent) == "table" and appConfig.eventMapMacros.EclipseEvent or {}
+appConfig.eventActiveTarget = type(appConfig.eventActiveTarget) == "table" and appConfig.eventActiveTarget or nil
+if type(appConfig.eventActiveTarget) == "table" then
+    local eventMode = tostring(appConfig.eventActiveTarget.Mode or "")
+    if eventMode == "GoldenHourEvent" and not appConfig.autoGoldenHourEnabled
+        or eventMode == "EclipseEvent" and not appConfig.autoEclipseEnabled then appConfig.eventActiveTarget = nil end
+end
+appConfig.goldenHourCompletedSeed = tonumber(appConfig.goldenHourCompletedSeed)
 appConfig.AutoStatRoll = type(appConfig.AutoStatRoll) == "table" and appConfig.AutoStatRoll or {}
 appConfig.AutoStatRoll.Enabled = appConfig.AutoStatRoll.Enabled == true
 appConfig.AutoStatRoll.Webhook = appConfig.AutoStatRoll.Webhook ~= false
@@ -1155,6 +1173,7 @@ local FusionPackage = ReplicatedStorage:WaitForChild("FusionPackage")
 local Actions = require(FusionPackage:WaitForChild("Actions"))
 local Fusion = require(FusionPackage:WaitForChild("Fusion"))
 local Dependencies = require(FusionPackage:WaitForChild("Dependencies"))
+local Shared = require(FusionPackage:WaitForChild("Shared"))
 local FishingNodes = require(ReplicatedStorage:WaitForChild("Nodes"))
 local ItemUtils = require(ReplicatedStorage.Shared:WaitForChild("ItemUtils"))
 pcall(function()
@@ -1171,6 +1190,8 @@ local BattlepassInfo = require(SharedInfo:WaitForChild("Battlepass"))
 local CalendarInfo = require(SharedInfo:WaitForChild("Calendars"))
 local MapInfo = require(SharedInfo:WaitForChild("Maps"))
 local ChallengeInfo = require(SharedInfo:WaitForChild("ChallengeInfo"))
+local GoldenHourInfo = require(SharedInfo.Events:WaitForChild("GoldenHourEvent"))
+local EclipseInfo = require(SharedInfo.Events:WaitForChild("EclipseEvent"))
 local BannerInfo = require(SharedInfo:WaitForChild("BannerInfo"))
 local ShopsInfo = require(SharedInfo:WaitForChild("Shops"))
 local UnitsInfo = require(SharedInfo:WaitForChild("Units"))
@@ -1610,10 +1631,15 @@ local function getCurrentStageKey(stateInfo, previousStateInfo)
         mapName = tostring(questTarget.Map or "")
         if actName == "" or actName == "nil" then actName = tostring(questTarget.Act or "") end
     end
-    local challengeTarget = appConfig.autoChallengeEnabled and appConfig.challengeActiveTarget or nil
+    local challengeTarget = (appConfig.autoChallengeEnabled or appConfig.autoDailyChallengeEnabled) and appConfig.challengeActiveTarget or nil
     if (mapName == "" or mapName == "nil") and type(challengeTarget) == "table" and challengeTarget.Mode == stateInfo.Gamemode then
         mapName = tostring(challengeTarget.Map or "")
         if actName == "" or actName == "nil" then actName = tostring(challengeTarget.Act or "") end
+    end
+    local eventTarget = (appConfig.autoGoldenHourEnabled or appConfig.autoEclipseEnabled) and appConfig.eventActiveTarget or nil
+    if (mapName == "" or mapName == "nil") and type(eventTarget) == "table" and eventTarget.Mode == stateInfo.Gamemode then
+        mapName = tostring(eventTarget.Map or "")
+        if actName == "" or actName == "nil" then actName = tostring(eventTarget.Act or "") end
     end
     if (mapName == "" or mapName == "nil") and appConfig.autoJoinEnabled and appConfig.AutoJoin and appConfig.AutoJoin ~= "" then
         local parts = string.split(appConfig.AutoJoin, "|")
@@ -1661,6 +1687,16 @@ local function challengeTargetMatchesState(stateInfo)
     -- A Challenge slot index is unique within its type. Map replicas can arrive later or use a different display name.
     return modeMatches and typeMatches and indexMatches
 end
+local function eventTargetMatchesState(stateInfo)
+    local target = (appConfig.autoGoldenHourEnabled or appConfig.autoEclipseEnabled) and appConfig.eventActiveTarget or nil
+    if type(target) ~= "table" or type(stateInfo) ~= "table" or target.Owner ~= "Event" or not target.JoinIssuedAt then return false end
+    local function normalize(value)
+        return tostring(value or ""):lower():gsub("[^%w]", "")
+    end
+    if normalize(target.Mode) ~= normalize(stateInfo.Gamemode) then return false end
+    local stateMap = normalize(stateInfo.Map)
+    return stateMap == "" or stateMap == "nil" or stateMap == normalize(target.Map)
+end
 local function automationMacroPlaybackEnabled(stateInfo)
     if getgenv().AnimeExpeditionsMapSwitchPending then return false end
     if type(stateInfo) == "table" and stateInfo.Gamemode == "Expedition" then
@@ -1674,12 +1710,14 @@ local function automationMacroPlaybackEnabled(stateInfo)
         end
     end
     local questOwned = QuestAuto:TargetMatchesState(stateInfo)
+    local eventOwned = eventTargetMatchesState(stateInfo)
     local challengeOwned = challengeTargetMatchesState(stateInfo)
     local ownedTarget = (questOwned and appConfig.QuestAuto.ActiveTarget)
+        or (eventOwned and appConfig.eventActiveTarget)
         or (challengeOwned and appConfig.challengeActiveTarget)
     local restartPhase = type(ownedTarget) == "table" and ownedTarget.MacroRestartPhase or nil
     if restartPhase and restartPhase ~= "Ready" and restartPhase ~= "Failed" then return false end
-    return appConfig.autoPlayEnabled or questOwned or challengeOwned
+    return appConfig.autoPlayEnabled or questOwned or eventOwned or challengeOwned
 end
 local function getMacroListForStage(stageKey, stateInfo)
     local questTarget = QuestAuto:TargetMatchesState(stateInfo) and appConfig.QuestAuto.ActiveTarget or nil
@@ -1689,6 +1727,13 @@ local function getMacroListForStage(stageKey, stateInfo)
             return questMacro, tostring(questTarget.MacroKey)
         end
     end
+    local eventTarget = eventTargetMatchesState(stateInfo) and appConfig.eventActiveTarget or nil
+    if type(eventTarget) == "table" and eventTarget.MacroKey then
+        local eventMacro = appConfig.Macros[tostring(eventTarget.MacroKey)]
+        if type(eventMacro) == "table" then
+            return eventMacro, tostring(eventTarget.MacroKey)
+        end
+    end
     local challengeTarget = challengeTargetMatchesState(stateInfo) and appConfig.challengeActiveTarget or nil
     if type(challengeTarget) == "table" and challengeTarget.MacroKey then
         local challengeMacro = appConfig.Macros[tostring(challengeTarget.MacroKey)]
@@ -1696,7 +1741,7 @@ local function getMacroListForStage(stageKey, stateInfo)
             return challengeMacro, tostring(challengeTarget.MacroKey)
         end
     end
-    if not questTarget and not challengeTarget and type(stateInfo) == "table" and stateInfo.Gamemode == "Story" then
+    if not questTarget and not eventTarget and not challengeTarget and type(stateInfo) == "table" and stateInfo.Gamemode == "Story" then
         local requestedKey = appConfig.storyMapMacros[tostring(stateInfo.Map or "")]
         if not requestedKey then
             local normalizedStage = normalizeStageKey(stageKey)
@@ -1941,7 +1986,9 @@ end)
 local Tabs = {
     Lobby = Window:AddTab({ Title = "Lobby Auto", Icon = "home" }),
     Summon = Window:AddTab({ Title = "Auto Summon", Icon = "sparkles" }),
-    Event = Window:AddTab({ Title = "Auto Event", Icon = "calendar-days" }),
+    Event = Window:AddTab({ Title = "Auto Fishing", Icon = "fish" }),
+    GoldenHour = Window:AddTab({ Title = "Golden Hour", Icon = "sun" }),
+    Eclipse = Window:AddTab({ Title = "Eclipse", Icon = "moon" }),
     Quest = Window:AddTab({ Title = "Auto Quest", Icon = "scroll-text" }),
     Story = Window:AddTab({ Title = "Auto Story", Icon = "book-open" }),
     Challenge = Window:AddTab({ Title = "Auto Challenge", Icon = "swords" }),
@@ -2458,6 +2505,98 @@ Tabs.Event:AddDropdown("SummerFishCloneTarget", {
     appConfig.summerFishCloneTarget = selected
     saveConfig()
 end)
+local goldenHourStatusPara = Tabs.GoldenHour:AddParagraph({
+    Title = "Golden Hour",
+    Content = "Đang chờ dữ liệu Golden Hour...",
+})
+Tabs.GoldenHour:AddToggle("ToggleAutoGoldenHour", {
+    Title = "Bật Auto Golden Hour",
+    Description = "Ưu tiên map Golden Hour hiện tại nếu phần thưởng 30 phút này chưa nhận.",
+    Default = appConfig.autoGoldenHourEnabled,
+}):OnChanged(function(value)
+    appConfig.autoGoldenHourEnabled = value == true
+    if not value and type(appConfig.eventActiveTarget) == "table" and appConfig.eventActiveTarget.Mode == "GoldenHourEvent" then
+        appConfig.eventActiveTarget = nil
+    end
+    saveConfig()
+end)
+local eclipseStatusPara = Tabs.Eclipse:AddParagraph({
+    Title = "Eclipse",
+    Content = "Đang chờ dữ liệu Eclipse...",
+})
+Tabs.Eclipse:AddToggle("ToggleAutoEclipse", {
+    Title = "Bật Auto Nhật Thực / Nguyệt Thực",
+    Description = "Tự chạy Eclipsed Infinite hiện tại khi quest Eclipse còn khả dụng.",
+    Default = appConfig.autoEclipseEnabled,
+}):OnChanged(function(value)
+    appConfig.autoEclipseEnabled = value == true
+    if not value and type(appConfig.eventActiveTarget) == "table" and appConfig.eventActiveTarget.Mode == "EclipseEvent" then
+        appConfig.eventActiveTarget = nil
+    end
+    saveConfig()
+end)
+Tabs.GoldenHour:AddParagraph({
+    Title = "Macro Theo Map Event",
+    Content = "Golden Hour chạy Act cuối và dùng Macro riêng cho từng map.",
+})
+Tabs.Eclipse:AddParagraph({
+    Title = "Macro Theo Map Event",
+    Content = "Eclipse chạy Infinite hiện tại và dùng Macro riêng cho từng map.",
+})
+do
+local eventMapSets = {GoldenHourEvent = {}, EclipseEvent = {}}
+for mapName in pairs((MapInfo.MapData and MapInfo.MapData.Story) or {}) do
+    eventMapSets.GoldenHourEvent[tostring(mapName)] = true
+end
+for mapName in pairs((MapInfo.MapData and MapInfo.MapData.Infinite) or {}) do
+    if mapName ~= "SpiritCity" and mapName ~= "RedLake" and mapName ~= "HillOfSwords" then
+        eventMapSets.EclipseEvent[tostring(mapName)] = true
+    end
+end
+    for _, modeName in ipairs({"GoldenHourEvent", "EclipseEvent"}) do
+    local mapNames = {}
+    for mapName in pairs(eventMapSets[modeName]) do table.insert(mapNames, mapName) end
+    table.sort(mapNames)
+    for _, mapName in ipairs(mapNames) do
+        local macroChoices = {"Không chọn"}
+        for macroKey, macroData in pairs(appConfig.Macros) do
+            local normalizedMacroKey = normalizeStageKey(macroKey)
+            local belongsToMap = false
+            for _, macroMode in ipairs({"Story", "Infinite", "Challenge", "GoldenHourEvent", "EclipseEvent"}) do
+                local normalizedModeMap = normalizeStageKey(macroMode .. "_" .. mapName)
+                local stageSuffix = normalizedMacroKey:sub(#normalizedModeMap + 1)
+                if normalizedMacroKey:sub(1, #normalizedModeMap) == normalizedModeMap
+                    and (stageSuffix == "" or stageSuffix:match("^%d+$") or stageSuffix:match("^act%d+$")) then
+                    belongsToMap = true
+                    break
+                end
+            end
+            if type(macroData) == "table" and #macroData > 0 and belongsToMap then table.insert(macroChoices, tostring(macroKey)) end
+        end
+        table.sort(macroChoices, function(left, right)
+            if left == right then return false end
+            if left == "Không chọn" then return true end
+            if right == "Không chọn" then return false end
+            return left < right
+        end)
+        local selectedMacro = appConfig.eventMapMacros[modeName][mapName]
+        if selectedMacro and not table.find(macroChoices, selectedMacro) and appConfig.Macros[selectedMacro] then
+            table.insert(macroChoices, selectedMacro)
+        end
+        local displayMode = modeName == "GoldenHourEvent" and "Golden Hour" or "Eclipse"
+        local eventTab = modeName == "GoldenHourEvent" and Tabs.GoldenHour or Tabs.Eclipse
+        eventTab:AddDropdown(modeName .. "MapMacro_" .. mapName:gsub("[^%w%-_]", ""), {
+            Title = displayMode .. " - " .. mapName,
+            Values = macroChoices,
+            Multi = false,
+            Default = selectedMacro or "Không chọn",
+        }):OnChanged(function(value)
+            appConfig.eventMapMacros[modeName][mapName] = value ~= "Không chọn" and value or nil
+            saveConfig()
+        end)
+    end
+end
+end
 task.spawn(function()
     while expeditionScriptIsCurrent() and task.wait(0.25) do
         if appConfig.autoFishingEnabled then
@@ -2996,6 +3135,7 @@ for mode, maps in pairs(MapInfo.MapData or {}) do
                 end
             end
         end
+        task.wait()
     end
 end
 for mapId, entry in pairs(joinTree) do
@@ -3260,7 +3400,8 @@ TogglePlay:OnChanged(function(state)
     saveConfig()
     if not state then
         local currentState = getGameStates()
-        if not QuestAuto:TargetMatchesState(currentState) and not challengeTargetMatchesState(currentState) then isPlaying = false end
+        if not QuestAuto:TargetMatchesState(currentState) and not eventTargetMatchesState(currentState)
+            and not challengeTargetMatchesState(currentState) then isPlaying = false end
     else
         isRecording = false
         getgenv().PendingRecord = false
@@ -3740,7 +3881,8 @@ Tabs.Configs:AddButton({
     Callback = function()
         local share, config, excluded = getgenv().AnimeExpeditionsMacroShare, {}, {
             WebhookUrl = true,
-            challengeActiveTarget = true, challengeSkippedSlots = true, expeditionScrapCraftPending = true,
+            challengeActiveTarget = true, challengeSkippedSlots = true, eventActiveTarget = true, goldenHourCompletedSeed = true,
+            expeditionScrapCraftPending = true,
             expeditionScrapCraftPendingSince = true, LobbyMaintenance = true,
         }
         for _, key in ipairs(lobbyConfigKeys) do if not excluded[key] then config[key] = appConfig[key] end end
@@ -3773,6 +3915,8 @@ Tabs.Configs:AddButton({
             end
             appConfig.challengeActiveTarget = nil
             appConfig.challengeSkippedSlots = {ResetKey = "", Slots = {}}
+            appConfig.eventActiveTarget = nil
+            appConfig.goldenHourCompletedSeed = nil
             appConfig.expeditionScrapCraftPending = false
             appConfig.expeditionScrapCraftPendingSince = 0
             appConfig.LobbyMaintenance = {Epoch = 0, Phase = "Idle", Reasons = {}, RequestedAt = 0}
@@ -4029,15 +4173,18 @@ local lastAntiAfkJumpAt = 0
 local function PulseAntiAFKInput()
     lastAntiAfkInputAt = tick()
     getgenv().AE_AntiAfkInputUntil = tick() + 0.25
-    VirtualUser:CaptureController()
-    VirtualUser:ClickButton2(Vector2.new())
     pcall(function()
-        local vim = game:GetService("VirtualInputManager")
-        vim:SendMouseMoveEvent(5, 50, game)
+        local camera = workspace.CurrentCamera
+        local viewport = camera and camera.ViewportSize or Vector2.new(800, 600)
+        local safePosition = Vector2.new(math.floor(viewport.X * 0.5), math.max(5, math.floor(viewport.Y * 0.05)))
+        VirtualInputManager:SendMouseMoveEvent(safePosition.X, safePosition.Y, game)
         task.wait(0.02)
-        vim:SendMouseButtonEvent(5, 50, 0, true, game, 1)
+        VirtualUser:CaptureController()
+        VirtualUser:ClickButton2(safePosition)
         task.wait(0.02)
-        vim:SendMouseButtonEvent(5, 50, 0, false, game, 1)
+        VirtualInputManager:SendMouseButtonEvent(safePosition.X, safePosition.Y, 0, true, game, 1)
+        task.wait(0.02)
+        VirtualInputManager:SendMouseButtonEvent(safePosition.X, safePosition.Y, 0, false, game, 1)
     end)
     if tick() - lastAntiAfkJumpAt >= 600 then
         lastAntiAfkJumpAt = tick()
@@ -4064,8 +4211,17 @@ local function ReturnFromAFKChamber()
     end
     return false
 end
-game:GetService("Players").LocalPlayer.Idled:Connect(function()
-    if appConfig.AntiAFK then
+local antiAfkIdleSignal = game:GetService("Players").LocalPlayer.Idled
+if typeof(getconnections) == "function" then
+    for _, connection in ipairs(getconnections(antiAfkIdleSignal)) do
+        pcall(function() connection:Disconnect() end)
+    end
+else
+    local previousConnection = getgenv().AnimeExpeditionsAntiAFKIdleConnection
+    if previousConnection then pcall(function() previousConnection:Disconnect() end) end
+end
+getgenv().AnimeExpeditionsAntiAFKIdleConnection = antiAfkIdleSignal:Connect(function()
+    if expeditionScriptIsCurrent() and appConfig.AntiAFK then
         PulseAntiAFKInput()
     end
 end)
@@ -4864,8 +5020,10 @@ getgenv().AnimeExpeditionsCoordinator.BeginMapSwitchResolution = function(self, 
     if not stateInfo or stateInfo.CurrentGameState == "Lobby" then return false end
     if owner == "AutoJoin" then
         local questTarget = appConfig.QuestAuto.Enabled and appConfig.QuestAuto.ActiveTarget or nil
+        local eventTarget = (appConfig.autoGoldenHourEnabled or appConfig.autoEclipseEnabled) and appConfig.eventActiveTarget or nil
         local challengeTarget = (appConfig.autoChallengeEnabled or appConfig.autoDailyChallengeEnabled) and appConfig.challengeActiveTarget or nil
         if type(questTarget) == "table" and questTarget.Owner == "Quest"
+            or type(eventTarget) == "table" and eventTarget.Owner == "Event"
             or type(challengeTarget) == "table" and challengeTarget.Owner == "Challenge" then return false end
     end
     local currentState = tostring(stateInfo.CurrentGameState or "")
@@ -4976,6 +5134,7 @@ getgenv().AnimeExpeditionsCoordinator.StartMapSwitch = function(self, joinValue,
     switch.TargetMap = tostring(levelData.MapName or "")
     switch.PreviousIncrement = tonumber(stateInfo and stateInfo.GameIncrement) or switch.PreviousIncrement
     local target = (switch.Owner == "Quest" and appConfig.QuestAuto.ActiveTarget)
+        or (switch.Owner == "Event" and appConfig.eventActiveTarget)
         or (switch.Owner == "Challenge" and appConfig.challengeActiveTarget or nil)
     if type(target) == "table" then
         target.Owner = switch.Owner
@@ -4984,7 +5143,7 @@ getgenv().AnimeExpeditionsCoordinator.StartMapSwitch = function(self, joinValue,
         if switch.Owner == "Quest" then
             target.MatchesPlayedAtJoin = getSessionMatchesPlayed() or tonumber(stateInfo and stateInfo.SessionMatchesPlayed)
         end
-        if switch.Owner == "Quest" or switch.Owner == "Challenge" then saveConfig() end
+        if switch.Owner == "Quest" or switch.Owner == "Event" or switch.Owner == "Challenge" then saveConfig() end
     end
     getgenv().AnimeExpeditionsJoinLock = {
         Owner = switch.Owner,
@@ -5571,7 +5730,7 @@ getgenv().AnimeExpeditionsCoordinator.ProcessMandatory = function(self, stateInf
     end
     return false
 end
-getgenv().AnimeExpeditionsCoordinator.BeforeAutomation = function(self, stateInfo, questOwned, challengeOwned)
+getgenv().AnimeExpeditionsCoordinator.BeforeAutomation = function(self, stateInfo, questOwned, eventOwned, challengeOwned)
     if self.Generation ~= getgenv().AnimeExpeditionsScriptGeneration then return false end
     self:UpdateFuelDisplay()
     self:UpdateBuildingResourceDisplay()
@@ -5647,14 +5806,14 @@ getgenv().AnimeExpeditionsCoordinator.BeforeAutomation = function(self, stateInf
     local trainingMandatory = self:GetMaintenance().Reasons.TrainingRotation == true
     local fuelMandatory = self:GetMaintenance().Reasons.ExpeditionFuel == true
     if trainingMandatory or fuelMandatory then
-        if questOwned or challengeOwned then return false end
+        if questOwned or eventOwned or challengeOwned then return false end
         self:RequestLobby("Maintenance", "Fuel/Training pending; Exit Immediately", stateInfo)
         return true
     end
-    if self:HasMandatory() and not questOwned and not challengeOwned and not specialLifecycle then
+    if self:HasMandatory() and not questOwned and not eventOwned and not challengeOwned and not specialLifecycle then
         self:RequestLobby("Maintenance", "Craft pending", stateInfo)
     end
-    return self:HasMandatory() and not questOwned and not challengeOwned and not specialLifecycle
+    return self:HasMandatory() and not questOwned and not eventOwned and not challengeOwned and not specialLifecycle
 end
 getgenv().AnimeExpeditionsCoordinator.GetTrainingProjection = function(self, unitData, assignedAt, trainingUpgrade)
     local expeditionInfo = Dependencies.Information.Expeditions
@@ -6292,6 +6451,214 @@ local function fusionPeek(value)
     local ok, result = pcall(function() return Fusion.peek(value) end)
     return ok and result or value
 end
+local eventRuntime = {
+    Status = {GoldenHourEvent = "Đang chờ dữ liệu Golden Hour...", EclipseEvent = "Đang chờ dữ liệu Eclipse..."},
+    LastDisplay = {}, ErrorCount = {}, LastErrorAt = {}, LastJoinAt = 0, LastReturnAt = 0, FinishedAt = 0,
+}
+local function setEventStatus(status, modeName)
+    modeName = modeName or (type(appConfig.eventActiveTarget) == "table" and appConfig.eventActiveTarget.Mode) or "GoldenHourEvent"
+    eventRuntime.Status[modeName] = tostring(status or "")
+end
+local function getEventMacro(modeName, mapName)
+    local modeMacros = appConfig.eventMapMacros[tostring(modeName)]
+    local requestedKey = type(modeMacros) == "table" and modeMacros[tostring(mapName)] or nil
+    if not requestedKey or requestedKey == "" then return nil end
+    local macroList, matchedKey = getMacroListForStage(requestedKey)
+    if type(macroList) ~= "table" or #macroList == 0 then return nil end
+    return matchedKey
+end
+local function getTimedEventState()
+    local now = os.time()
+    local result = {
+        GoldenHour = {Mode = "GoldenHourEvent", Available = false},
+        Eclipse = {Mode = "EclipseEvent", Available = false},
+    }
+    local playerData = fusionPeek(Dependencies.PlayerData)
+    playerData = type(playerData) == "table" and playerData or {}
+    local allEventStates = fusionPeek(Shared.AllEventStates)
+    local goldenState = type(allEventStates) == "table" and fusionPeek(allEventStates.GoldenHourEvent) or nil
+    local goldenActive = type(goldenState) == "table" and fusionPeek(goldenState.IsActive) == true
+    local goldenOk, goldenQueue = pcall(function() return GoldenHourInfo:GetBoostedQueueData(now) end)
+    local rewardOk, canReward = pcall(function() return GoldenHourInfo:CanPlayerReceiveRewards(playerData, now) end)
+    if goldenOk and type(goldenQueue) == "table" then
+        local seed = GoldenHourInfo:GetSeed(now)
+        result.GoldenHour = {
+            Mode = "GoldenHourEvent",
+            Map = tostring(goldenQueue.MapName or ""),
+            Act = tostring(goldenQueue.ActName or "Act 1"),
+            Difficulty = tostring(goldenQueue.Difficulty or "Hard"),
+            Seed = seed,
+            Available = goldenActive and rewardOk and canReward == true and tonumber(appConfig.goldenHourCompletedSeed) ~= tonumber(seed),
+        }
+    end
+    local eclipseVisibleOk, eclipseVisible = pcall(function() return EclipseInfo:IsEclipseVisible(playerData) end)
+    local eclipseMapOk, eclipseMap = pcall(function() return EclipseInfo:GetEclipsedMap(now) end)
+    if eclipseMapOk and eclipseMap then
+        result.Eclipse = {
+            Mode = "EclipseEvent",
+            Map = tostring(eclipseMap),
+            Act = "Act 1",
+            Difficulty = "Hard",
+            Seed = now - now % (tonumber(EclipseInfo.ResetInterval) or 1800),
+            Available = eclipseVisibleOk and eclipseVisible == true,
+        }
+    end
+    return result
+end
+local function updateEventDisplay(eventState, modeName)
+    local isGolden = modeName == "GoldenHourEvent"
+    local current = isGolden and eventState.GoldenHour or eventState.Eclipse
+    local availability = current.Available and "Sẵn sàng"
+        or (isGolden and "Đã nhận / chưa mở" or "Quest không khả dụng")
+    local description = table.concat({
+        eventRuntime.Status[modeName],
+        string.format("%s: %s | %s", isGolden and "Golden Hour" or "Eclipse", current.Map or "?", availability),
+    }, "\n")
+    if description ~= eventRuntime.LastDisplay[modeName] then
+        eventRuntime.LastDisplay[modeName] = description
+        safeSetParagraphDesc(isGolden and goldenHourStatusPara or eclipseStatusPara, description)
+    end
+end
+local function eventJoinValue(target)
+    return table.concat({tostring(target.Mode), tostring(target.Map), tostring(target.Act or "Act 1"), tostring(target.Difficulty or "Hard")}, "|")
+end
+local function requestEventLobby(reason, modeName)
+    setEventStatus(reason .. " Đang chọn event tiếp theo...", modeName)
+    if tick() - eventRuntime.LastReturnAt < 5 then return end
+    local coordinator = getgenv().AnimeExpeditionsCoordinator
+    local stateInfo = getGameStates()
+    if coordinator and stateInfo and stateInfo.CurrentGameState ~= "Lobby" and coordinator:BeginMapSwitchResolution("Event", reason, stateInfo) then
+        eventRuntime.LastReturnAt = tick()
+    elseif coordinator and coordinator:RequestLobby("Event", reason, stateInfo) then
+        eventRuntime.LastReturnAt = tick()
+    elseif not coordinator then
+        eventRuntime.LastReturnAt = tick()
+        pcall(function() safeFireGameAction("Lobby") end)
+    end
+end
+local function selectTimedEvent(eventState, requestedMode)
+    local missing = {}
+    local candidates = {}
+    if requestedMode == "GoldenHourEvent" and appConfig.autoGoldenHourEnabled then table.insert(candidates, eventState.GoldenHour) end
+    if requestedMode == "EclipseEvent" and appConfig.autoEclipseEnabled then table.insert(candidates, eventState.Eclipse) end
+    for _, candidate in ipairs(candidates) do
+        if candidate and candidate.Available then
+            local macroKey = getEventMacro(candidate.Mode, candidate.Map)
+            if macroKey then return candidate, macroKey end
+            table.insert(missing, (candidate.Mode == "GoldenHourEvent" and "Golden Hour" or "Eclipse") .. " " .. tostring(candidate.Map))
+        end
+    end
+    return nil, nil, missing
+end
+local function runTimedEventTick(stateInfo, canTakePriority, requestedMode)
+    local directive = {BlockNormalJoin = false, JoinValue = nil}
+    local eventState = getTimedEventState()
+    local target = appConfig.eventActiveTarget
+    if type(target) == "table" and target.Mode ~= requestedMode then target = nil end
+    if type(target) == "table" then
+        local enabled = target.Mode == "GoldenHourEvent" and appConfig.autoGoldenHourEnabled
+            or target.Mode == "EclipseEvent" and appConfig.autoEclipseEnabled
+        local current = target.Mode == "GoldenHourEvent" and eventState.GoldenHour or eventState.Eclipse
+        local inLobby = not stateInfo or stateInfo.CurrentGameState == "Lobby"
+        if not enabled or inLobby and (not current.Available or tostring(current.Map) ~= tostring(target.Map)
+            or tonumber(current.Seed) ~= tonumber(target.Seed)) then
+            appConfig.eventActiveTarget = nil
+            target = nil
+            saveConfig()
+        end
+    end
+    local enabled = requestedMode == "GoldenHourEvent" and appConfig.autoGoldenHourEnabled or appConfig.autoEclipseEnabled
+    local eventName = requestedMode == "GoldenHourEvent" and "Golden Hour" or "Eclipse"
+    if not enabled then
+        setEventStatus("Auto " .. eventName .. " đang tắt.", requestedMode)
+    elseif not stateInfo or stateInfo.CurrentGameState == "Lobby" then
+        if canTakePriority then
+            if target then
+                directive.BlockNormalJoin = true
+                directive.JoinValue = eventJoinValue(target)
+                setEventStatus("Đang vào " .. eventName .. ": " .. tostring(target.Map) .. ".", requestedMode)
+            else
+                local selected, macroKey, missing = selectTimedEvent(eventState, requestedMode)
+                if selected then
+                    target = {
+                        Owner = "Event",
+                        Mode = selected.Mode,
+                        Map = selected.Map,
+                        Act = selected.Act,
+                        Difficulty = selected.Difficulty,
+                        Seed = selected.Seed,
+                        MacroKey = macroKey,
+                    }
+                    appConfig.eventActiveTarget = target
+                    saveConfig()
+                    directive.BlockNormalJoin = true
+                    directive.JoinValue = eventJoinValue(target)
+                    setEventStatus("Ưu tiên " .. eventName .. ": " .. target.Map .. ".", requestedMode)
+                elseif missing and missing[1] then
+                    setEventStatus(table.concat(missing, ", ") .. " chưa chọn Macro; đang nhường automation khác.", requestedMode)
+                else
+                    setEventStatus("Không có " .. eventName .. " khả dụng; đang nhường automation khác.", requestedMode)
+                end
+            end
+        else
+            setEventStatus("Đang chờ automation ưu tiên cao hơn hoàn tất...", requestedMode)
+        end
+    elseif target and eventTargetMatchesState(stateInfo) then
+        directive.BlockNormalJoin = true
+        local macro = target.MacroKey and appConfig.Macros[tostring(target.MacroKey)] or nil
+        if type(macro) ~= "table" or #macro == 0 then
+            appConfig.eventActiveTarget = nil
+            saveConfig()
+            requestEventLobby("Event " .. tostring(target.Map) .. " không có Macro.", requestedMode)
+        elseif QuestAuto:EnsureMacroRestart("Event", target, stateInfo) then
+        else
+            local currentState = tostring(stateInfo.CurrentGameState or "")
+            local finished = currentState == "Finished" or currentState == "Victory" or currentState == "Defeat"
+            local defeated = currentState == "Defeat" or (currentState == "Finished" and tonumber(stateInfo.BaseHealth or 0) <= 0)
+            if finished and not defeated then
+                if eventRuntime.FinishedAt == 0 then eventRuntime.FinishedAt = tick() end
+                if tick() - eventRuntime.FinishedAt >= 3 then
+                    if target.Mode == "GoldenHourEvent" then appConfig.goldenHourCompletedSeed = target.Seed end
+                    appConfig.eventActiveTarget = nil
+                    saveConfig()
+                    requestEventLobby("Đã hoàn tất " .. eventName .. " " .. tostring(target.Map) .. ".", requestedMode)
+                end
+            elseif defeated then
+                eventRuntime.FinishedAt = 0
+                appConfig.eventActiveTarget = nil
+                saveConfig()
+                requestEventLobby("Event bị thua; đang thử lại nếu còn khả dụng.", requestedMode)
+            else
+                eventRuntime.FinishedAt = 0
+                setEventStatus("Đang chạy " .. eventName .. ": " .. tostring(target.Map) .. ".", requestedMode)
+            end
+        end
+    else
+        eventRuntime.FinishedAt = 0
+        local selected, macroKey
+        if canTakePriority then selected, macroKey = selectTimedEvent(eventState, requestedMode) end
+        if selected then
+            target = {
+                Owner = "Event",
+                Mode = selected.Mode,
+                Map = selected.Map,
+                Act = selected.Act,
+                Difficulty = selected.Difficulty,
+                Seed = selected.Seed,
+                MacroKey = macroKey,
+            }
+            appConfig.eventActiveTarget = target
+            saveConfig()
+            requestEventLobby(eventName .. " đã sẵn sàng; đổi map trực tiếp.", requestedMode)
+            directive.BlockNormalJoin = true
+            directive.JoinValue = eventJoinValue(target)
+        else
+            setEventStatus("Đang ở trận không thuộc Auto " .. eventName .. ".", requestedMode)
+        end
+    end
+    updateEventDisplay(eventState, requestedMode)
+    return directive
+end
 local getRegularChallengeState
 local getChallengeMacro
 local findAvailableChallenge
@@ -6777,6 +7144,8 @@ end
 function QuestAuto:SetOwnerStatus(owner, status)
     if owner == "Challenge" then
         setChallengeStatus(status)
+    elseif owner == "Event" then
+        setEventStatus(status)
     else
         self:SetStatus(status)
     end
@@ -8061,16 +8430,21 @@ task.spawn(function()
         local maintenanceBlocking = mapSwitchBlocking or (not getgenv().AnimeExpeditionsMapSwitchPending and coordinator and coordinator:BeforeAutomation(
             stateInfo,
             QuestAuto:TargetMatchesState(stateInfo),
+            eventTargetMatchesState(stateInfo),
             challengeTargetMatchesState(stateInfo)
         ) or false)
         if coordinator and not getgenv().AnimeExpeditionsMapSwitchPending and (not stateInfo or stateInfo.CurrentGameState == "Lobby") then
             maintenanceBlocking = coordinator:RunQuestBoardClaims() or maintenanceBlocking
         end
         local questDirective = {BlockNormalJoin = false, BlockNormalSummon = false, JoinValue = nil}
+        local goldenDirective = {BlockNormalJoin = false, JoinValue = nil}
+        local eclipseDirective = {BlockNormalJoin = false, JoinValue = nil}
         local challengeDirective = {BlockNormalJoin = false, JoinValue = nil}
         if maintenanceBlocking then
             questDirective.BlockNormalJoin = true
             questDirective.BlockNormalSummon = true
+            goldenDirective.BlockNormalJoin = true
+            eclipseDirective.BlockNormalJoin = true
             challengeDirective.BlockNormalJoin = true
         else
             local questOk, questResult = xpcall(function() return QuestAuto:Tick(stateInfo) end, debug.traceback)
@@ -8109,7 +8483,44 @@ task.spawn(function()
             local questTarget = appConfig.QuestAuto.Enabled and appConfig.QuestAuto.ActiveTarget or nil
             local questOwnsPriority = type(questTarget) == "table" and questTarget.Owner == "Quest"
                 or questDirective.BlockNormalJoin or questDirective.JoinValue ~= nil
-            local challengeCanTakePriority = not questOwnsPriority
+            local function runEventController(modeName, canTakePriority)
+                local directive = {BlockNormalJoin = false, JoinValue = nil}
+                if canTakePriority then
+                    local eventOk, eventResult = xpcall(function()
+                        return runTimedEventTick(stateInfo, true, modeName)
+                    end, debug.traceback)
+                    if eventOk and type(eventResult) == "table" then
+                        directive = eventResult
+                        eventRuntime.ErrorCount[modeName] = 0
+                    elseif not eventOk then
+                        directive.BlockNormalJoin = true
+                        eventRuntime.ErrorCount[modeName] = (eventRuntime.ErrorCount[modeName] or 0) + 1
+                        if tick() - (eventRuntime.LastErrorAt[modeName] or 0) >= 10 then
+                            eventRuntime.LastErrorAt[modeName] = tick()
+                            warn("[AUTO " .. string.upper(modeName) .. "] " .. tostring(eventResult))
+                        end
+                        if eventRuntime.ErrorCount[modeName] >= 3 then
+                            if modeName == "GoldenHourEvent" then appConfig.autoGoldenHourEnabled = false
+                            else appConfig.autoEclipseEnabled = false end
+                            if type(appConfig.eventActiveTarget) == "table" and appConfig.eventActiveTarget.Mode == modeName then
+                                appConfig.eventActiveTarget = nil
+                            end
+                            directive.BlockNormalJoin = false
+                            saveConfig()
+                            Fluent:Notify({Title = "Auto Event Disabled", Content = modeName .. " lỗi 3 lần liên tiếp; đã tắt để mở khóa scheduler.", Duration = 7})
+                        end
+                    end
+                else
+                    setEventStatus("Đang chờ automation ưu tiên cao hơn hoàn tất...", modeName)
+                    updateEventDisplay(getTimedEventState(), modeName)
+                end
+                return directive
+            end
+            goldenDirective = runEventController("GoldenHourEvent", not questOwnsPriority)
+            local eventTarget = appConfig.eventActiveTarget
+            local goldenOwnsPriority = type(eventTarget) == "table" and eventTarget.Owner == "Event" and eventTarget.Mode == "GoldenHourEvent"
+                or goldenDirective.BlockNormalJoin or goldenDirective.JoinValue ~= nil
+            local challengeCanTakePriority = not questOwnsPriority and not goldenOwnsPriority
             if challengeCanTakePriority then
                 local challengeOk, challengeResult = xpcall(function()
                     return runChallengeTick(stateInfo, challengeCanTakePriority)
@@ -8134,19 +8545,27 @@ task.spawn(function()
                     end
                 end
             else
-                setChallengeStatus("Đang chờ Auto Quest hoàn tất...")
+                setChallengeStatus(questOwnsPriority and "Đang chờ Auto Quest hoàn tất..." or "Đang chờ Golden Hour hoàn tất...")
                 updateChallengeDisplay(getRegularChallengeState())
             end
+            local challengeTarget = (appConfig.autoChallengeEnabled or appConfig.autoDailyChallengeEnabled) and appConfig.challengeActiveTarget or nil
+            local challengeOwnsPriority = type(challengeTarget) == "table" and challengeTarget.Owner == "Challenge"
+                or challengeDirective.BlockNormalJoin or challengeDirective.JoinValue ~= nil
+                or coordinator and coordinator.MapSwitch and coordinator.MapSwitch.Owner == "Challenge"
+            eclipseDirective = runEventController("EclipseEvent", not questOwnsPriority and not goldenOwnsPriority and not challengeOwnsPriority)
         end
         if coordinator and not coordinator.MapSwitch and stateInfo and appConfig.autoJoinEnabled and appConfig.AutoJoin ~= ""
             and tick() >= (getgenv().AnimeExpeditionsAutoJoinCooldownUntil or 0)
             and (stateInfo.CurrentGameState == "Finished" or stateInfo.CurrentGameState == "Victory" or stateInfo.CurrentGameState == "Defeat")
             and not questDirective.BlockNormalJoin and questDirective.JoinValue == nil
+            and not goldenDirective.BlockNormalJoin and goldenDirective.JoinValue == nil
             and not challengeDirective.BlockNormalJoin and challengeDirective.JoinValue == nil
+            and not eclipseDirective.BlockNormalJoin and eclipseDirective.JoinValue == nil
             and not (type(appConfig.QuestAuto.ActiveTarget) == "table" and appConfig.QuestAuto.ActiveTarget.Owner == "Quest")
+            and not (type(appConfig.eventActiveTarget) == "table" and appConfig.eventActiveTarget.Owner == "Event")
             and not (type(appConfig.challengeActiveTarget) == "table" and appConfig.challengeActiveTarget.Owner == "Challenge")
             and not maintenanceBlocking and not getgenv().AnimeExpeditionsJoinLock
-            and not QuestAuto:TargetMatchesState(stateInfo) and not challengeTargetMatchesState(stateInfo) then
+            and not QuestAuto:TargetMatchesState(stateInfo) and not eventTargetMatchesState(stateInfo) and not challengeTargetMatchesState(stateInfo) then
             local autoJoinParts = string.split(appConfig.AutoJoin, "|")
             local desiredMode = autoJoinParts[1] == "Challenge" and "Challenge" or tostring(autoJoinParts[1] or "")
             local desiredMap = tostring(autoJoinParts[2] or "")
@@ -8155,12 +8574,18 @@ task.spawn(function()
             if modeDiffers or mapDiffers then coordinator:BeginMapSwitchResolution("AutoJoin", "Auto Join cần đổi map", stateInfo) end
         end
         if coordinator and coordinator.MapSwitch and coordinator.MapSwitch.Phase == "Resolve" then
-            local switchJoinValue = questDirective.JoinValue or challengeDirective.JoinValue
-            local switchOwner = questDirective.JoinValue and "Quest" or (challengeDirective.JoinValue and "Challenge" or nil)
-            local higherPriorityOwned = questDirective.BlockNormalJoin or challengeDirective.BlockNormalJoin
+            local switchJoinValue = questDirective.JoinValue or goldenDirective.JoinValue or challengeDirective.JoinValue or eclipseDirective.JoinValue
+            local switchOwner = questDirective.JoinValue and "Quest"
+                or (goldenDirective.JoinValue and "Event"
+                or (challengeDirective.JoinValue and "Challenge"
+                or (eclipseDirective.JoinValue and "Event" or nil)))
+            local higherPriorityOwned = questDirective.BlockNormalJoin or goldenDirective.BlockNormalJoin
+                or challengeDirective.BlockNormalJoin or eclipseDirective.BlockNormalJoin
                 or type(appConfig.QuestAuto.ActiveTarget) == "table" and appConfig.QuestAuto.ActiveTarget.Owner == "Quest"
+                or type(appConfig.eventActiveTarget) == "table" and appConfig.eventActiveTarget.Owner == "Event"
                 or type(appConfig.challengeActiveTarget) == "table" and appConfig.challengeActiveTarget.Owner == "Challenge"
-            if not switchJoinValue and not questDirective.BlockNormalJoin and not challengeDirective.BlockNormalJoin
+            if not switchJoinValue and not questDirective.BlockNormalJoin and not goldenDirective.BlockNormalJoin
+                and not challengeDirective.BlockNormalJoin and not eclipseDirective.BlockNormalJoin
                 and not higherPriorityOwned
                 and tick() >= (getgenv().AnimeExpeditionsAutoJoinCooldownUntil or 0)
                 and appConfig.autoJoinEnabled and appConfig.AutoJoin ~= "" then
@@ -8433,14 +8858,20 @@ task.spawn(function()
                 utilityBlockedJoin = coordinator:RunStatRoll(stateInfo)
             end
             local trainingRequired = coordinator and coordinator:TrainingRotationNeeded()
-            if not utilityBlockedJoin and coordinator and (trainingRequired or (not questDirective.BlockNormalJoin and not challengeDirective.BlockNormalJoin
-                and not questDirective.JoinValue and not challengeDirective.JoinValue)) then
+            if not utilityBlockedJoin and coordinator and (trainingRequired or (not questDirective.BlockNormalJoin and not goldenDirective.BlockNormalJoin
+                and not challengeDirective.BlockNormalJoin and not eclipseDirective.BlockNormalJoin
+                and not questDirective.JoinValue and not goldenDirective.JoinValue and not challengeDirective.JoinValue and not eclipseDirective.JoinValue)) then
                 utilityBlockedJoin = coordinator:RunLobbyUtility(stateInfo)
             end
-            local effectiveAutoJoin = questDirective.JoinValue or challengeDirective.JoinValue
-            local joinOwner = questDirective.JoinValue and "Quest" or (challengeDirective.JoinValue and "Challenge" or nil)
-            if not effectiveAutoJoin and not questDirective.BlockNormalJoin and not challengeDirective.BlockNormalJoin
+            local effectiveAutoJoin = questDirective.JoinValue or goldenDirective.JoinValue or challengeDirective.JoinValue or eclipseDirective.JoinValue
+            local joinOwner = questDirective.JoinValue and "Quest"
+                or (goldenDirective.JoinValue and "Event"
+                or (challengeDirective.JoinValue and "Challenge"
+                or (eclipseDirective.JoinValue and "Event" or nil)))
+            if not effectiveAutoJoin and not questDirective.BlockNormalJoin and not goldenDirective.BlockNormalJoin
+                and not challengeDirective.BlockNormalJoin and not eclipseDirective.BlockNormalJoin
                 and not (type(appConfig.QuestAuto.ActiveTarget) == "table" and appConfig.QuestAuto.ActiveTarget.Owner == "Quest")
+                and not (type(appConfig.eventActiveTarget) == "table" and appConfig.eventActiveTarget.Owner == "Event")
                 and not (type(appConfig.challengeActiveTarget) == "table" and appConfig.challengeActiveTarget.Owner == "Challenge")
                 and tick() >= (getgenv().AnimeExpeditionsAutoJoinCooldownUntil or 0)
                 and appConfig.autoJoinEnabled and appConfig.AutoJoin ~= "" then
@@ -8460,7 +8891,9 @@ task.spawn(function()
             if not appConfig.autoJoinEnabled then joinStatus = "Auto Join đang tắt."
             elseif appConfig.AutoJoin == "" then joinStatus = "Chưa chọn Map."
             elseif questDirective.BlockNormalJoin then joinStatus = "Đang chờ Auto Quest."
+            elseif goldenDirective.BlockNormalJoin then joinStatus = "Đang chờ Golden Hour."
             elseif challengeDirective.BlockNormalJoin then joinStatus = "Đang chờ Auto Challenge."
+            elseif eclipseDirective.BlockNormalJoin then joinStatus = "Đang chờ Eclipse."
             elseif shopBlockedJoin then joinStatus = "Đang chờ Auto Shop."
             elseif craftBlockedJoin then joinStatus = "Đang chờ Auto Craft."
             elseif utilityBlockedJoin then joinStatus = "Đang chờ Lobby Utility."
@@ -8538,6 +8971,14 @@ task.spawn(function()
                             saveConfig()
                         end
                         QuestAuto.Runtime.LastJoinAt = tick()
+                    elseif joinOwner == "Event" then
+                        if type(appConfig.eventActiveTarget) == "table" then
+                            appConfig.eventActiveTarget.Owner = "Event"
+                            appConfig.eventActiveTarget.JoinIssuedAt = os.time()
+                            appConfig.eventActiveTarget.JoinValue = effectiveAutoJoin
+                            saveConfig()
+                        end
+                        eventRuntime.LastJoinAt = tick()
                     elseif joinOwner == "Challenge" then
                         if type(appConfig.challengeActiveTarget) == "table" then
                             appConfig.challengeActiveTarget.Owner = "Challenge"
@@ -8617,7 +9058,8 @@ task.spawn(function()
                 if currentSprites >= 125 then
                     if coordinator then
                         coordinator:Queue("SpriteCraft")
-                            if not QuestAuto:TargetMatchesState(stateInfo) and not challengeTargetMatchesState(stateInfo) then
+                            if not QuestAuto:TargetMatchesState(stateInfo) and not eventTargetMatchesState(stateInfo)
+                                and not challengeTargetMatchesState(stateInfo) then
                                 coordinator:RequestLobby("Craft", "Sprite Grey full", stateInfo)
                         end
                     else
@@ -11172,6 +11614,7 @@ do
         if building == "GoldMine" then table.insert(claimDefaults, "Gold Mine") end
         if building == "ResourceDrill" then table.insert(claimDefaults, "Resource Drill") end
     end
+    task.wait()
     Tabs.Expeditions:AddSection("Lobby Maintenance")
     if coordinator then
         coordinator.StatusParagraph = Tabs.Expeditions:AddParagraph({Title = "Maintenance Status", Content = coordinator.Status})
@@ -11252,6 +11695,7 @@ do
         end
         saveConfig()
     end)
+    task.wait()
     Tabs.Expeditions:AddSection("Building Rewards / Geode")
     Tabs.Expeditions:AddParagraph({
         Title = "Auto Claim và Auto Open",
@@ -11329,6 +11773,7 @@ do
         saveConfig()
         if coordinator then coordinator:UpdateBuildingResourceDisplay(true) end
     end)
+    task.wait()
     Tabs.Expeditions:AddSection("Research Lab")
     Tabs.Expeditions:AddToggle("ExpeditionLobbySkillTree", {
         Title = "Auto Skill Tree",
@@ -11338,6 +11783,7 @@ do
         ExpeditionAuto.autoSkillTree = value
         saveConfig()
     end)
+    task.wait()
     Tabs.Expeditions:AddSection("Training Grounds")
     Tabs.Expeditions:AddParagraph({
         Title = "Điều kiện hoàn thành",
@@ -11474,6 +11920,7 @@ do
             if coordinator then coordinator:RefreshTrainingOptions() end
         end,
     })
+    task.wait()
     Tabs.Expeditions:AddSection("Auto Stat Roll")
     Tabs.Expeditions:AddParagraph({
         Title = "Quy tắc an toàn",
@@ -11573,6 +12020,7 @@ do
     })
 end
 
+task.wait()
 Tabs.Macro:AddSection("Tự Động Expedition")
 Tabs.Macro:AddParagraph({Title = "Tự Động Kích Hoạt", Content = "Tự chạy khi vào Expedition và Macro của map có ít nhất một lệnh. Macro rỗng sẽ không chạy automation."})
 Tabs.Macro:AddSection("Tìm Route Reward")
@@ -11620,6 +12068,7 @@ Tabs.Macro:AddToggle("ExpeditionSellAllAfterBoss", {Title = "Qua Boss: Sell All 
     if not value then expeditionResetPostBoss() end
     saveConfig()
 end)
+task.wait()
 Tabs.Macro:AddSection("Tự Chọn Nâng Cấp")
 Tabs.Macro:AddToggle("ExpeditionAutoCards", {Title = "Tự chọn Nâng cấp / Đe", Default = ExpeditionAuto.autoCards}):OnChanged(function(value) ExpeditionAuto.autoCards = value; saveConfig() end)
 Tabs.Macro:AddDropdown("ExpeditionAutoCardSets", {Title = "Set muốn build", Description = "Ưu tiên card mới tiến gần hoặc mở bonus Set; card thuộc hai Set được cộng điểm cả hai.", Values = setOptions, Multi = true, Default = multiDropdownDefaults(setDefaults)}):OnChanged(function(value)
@@ -11638,6 +12087,7 @@ Tabs.Macro:AddSection("Tự Chọn Đe")
 Tabs.Macro:AddParagraph({Title = "Ưu Tiên Chỉ Số Đe", Content = "Tự chọn chỉ số Đe đầu tiên có trong danh sách ưu tiên."})
 Tabs.Macro:AddDropdown("ExpeditionAutoStats", {Title = "Chọn chỉ số Đe", Values = statOptions, Multi = true, Default = multiDropdownDefaults(ExpeditionAuto.statPriority)}):OnChanged(function(value) ExpeditionAuto.statPriority = expeditionListFromDropdown(value); saveConfig() end)
 Tabs.Macro:AddToggle("ExpeditionAutoAnvil", {Title = "Tự mua / dùng Đe", Default = ExpeditionAuto.buyAnvil and ExpeditionAuto.autoUseAnvil}):OnChanged(function(value) ExpeditionAuto.buyAnvil = value; ExpeditionAuto.autoUseAnvil = value; saveConfig() end)
+task.wait()
 Tabs.Macro:AddSection("Cửa Hàng Checkpoint")
 Tabs.Macro:AddParagraph({Title = "Trait Sách Cần Mua", Content = "Chỉ mua Sách có Trait phù hợp với danh sách đã chọn và Unit tương ứng đã được đặt."})
 Tabs.Macro:AddDropdown("ExpeditionAutoDamageTraits", {Title = "Damage Unit Tome Traits", Values = traitOptions, Multi = true, Default = multiDropdownDefaults(ExpeditionAuto.damageTraits)}):OnChanged(function(value) ExpeditionAuto.damageTraits = expeditionSetFromDropdown(value); saveConfig(); refreshExpeditionTomeTraitSummary() end)
@@ -11658,6 +12108,7 @@ Tabs.Macro:AddInput("ExpeditionAutoContinueDelay", {Title = "Thời gian chờ t
 Tabs.Macro:AddSection("Vị Trí Helper Expedition")
 Tabs.Macro:AddToggle("ExpeditionAutoHire", {Title = "Tự thuê Helper EVO", Default = ExpeditionAuto.autoHire}):OnChanged(function(value) ExpeditionAuto.autoHire = value; saveConfig() end)
 for index = 1, 10 do
+    task.wait()
     Tabs.Macro:AddDropdown("ExpeditionHelper" .. index, {Title = "Helper Priority " .. index, Values = helperEvoOptions, Multi = false, Default = ExpeditionAuto.helperPriority[index]}):OnChanged(function(value) ExpeditionAuto.helperPriority[index] = value or ""; saveConfig() end)
     Tabs.Macro:AddButton({
         Title = "Record Helper " .. index .. " Position",
@@ -11741,7 +12192,6 @@ else
 end
 
 local SummerUnitUtils = require(ReplicatedStorage.Shared.UnitUtils)
-local Shared = require(FusionPackage.Shared)
 local summerHotbarRuntime = {
     increment = nil,
     pendingPlacement = nil,
